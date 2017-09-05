@@ -1,0 +1,9 @@
+# V2017.9.5
+- Small cosmetic changes
+
+# v2017.8.23
+- Major optimizations
+- Initial release
+
+# v2017.8.21
+- Initial version
