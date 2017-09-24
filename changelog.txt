@@ -1,5 +1,10 @@
+# v2017.9.24 (20179240)
+- Fixed automatic re-patching after ROM/GApps updates.
+- Template 1400
+- Updated reference.
+
 # V2017.9.5
-- Small cosmetic changes
+- Minor cosmetic changes
 
 # v2017.8.23
 - Major optimizations

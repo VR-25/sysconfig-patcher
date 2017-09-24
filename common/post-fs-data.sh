@@ -1,10 +1,12 @@
 #!/system/bin/sh
 
+# Auto re-patch /system/etc/sysconfig/*
 syscfg=/dev/magisk/mirror/system/etc/sysconfig
 syscfgTMP=/data/_syscfg
-syscfgS=/magisk/sysconfig-patcher/system/etc/sysconfig
+syscfgS=/magisk/MagicGApps/system/etc/sysconfig
+MODPATH=${0%/*}
 
-if [ $syscfg -nt $syscfgS ]; then
+if [ "$(cat $MODPATH/.SCPatch 2>/dev/null)" != "$(du -s /system | sed 's|/system||' | xargs)" ]; then
 	cp -rf $syscfg $syscfgTMP
 	cd $syscfgTMP
 	for file in `ls -1`; do sed -i '/allow/s/<a/<!-- a/' $file; done
