@@ -1,7 +1,7 @@
 id=sysconfig-patcher
 name=Sysconfig Patcher
-version=v2017.9.24
-versionCode=20179240
+version=v2017.10.9
+versionCode=201710900
 author=VR25 @ XDA Developers
-description=Systemlessly patches /system/etc/sysconfig/* for data and battery savings & auto-re-patches after ROM/GApps updates.
+description=Systemlessly patches ALL XML files in /system/etc/sysconfig for data and battery savings & auto-re-patches across ROM/GApps updates.
 template=1400
