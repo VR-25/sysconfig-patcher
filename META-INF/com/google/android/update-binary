@@ -132,9 +132,13 @@ rm -rf $MODPATH 2>/dev/null
 mkdir -p $MODPATH/system/etc
 
 # Patch /system/etc/sysconfig/* for data and battery savings. ###
-cd $INSTALLER/sysconfig
-for file in `ls -1`; do
-	sed -i '/allow/s/<a/<!-- a/' $file
+for file in $INSTALLER/sysconfig/*; do
+	if [ -f "$file" ]; then
+		if grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file"; then
+			sed -i '/allow/s/<a/<!-- a/' $file
+		else rm "$file"
+		fi
+	fi
 done
 sed -i '/.volta/s/<!-- a/<a/' $INSTALLER/sysconfig/google.xml
 
@@ -143,8 +147,8 @@ ui_print "- Copying files"
 mv $INSTALLER/sysconfig $MODPATH/system/etc
 
 # Export /system size info for auto-re-patching (post-fs-data.sh) ###
-$BOOTMODE && echo "$(du -s /dev/magisk/mirror/system | cut -f1)" > $MODPATH/.InstallSystemSizeK \
-	|| echo "$(du -s /system | cut -f1)" > $MODPATH/.InstallSystemSizeK
+$BOOTMODE && echo "$(du -s /dev/magisk/mirror/system | cut -f1)" > $MODPATH/.SystemSizeK \
+	|| echo "$(du -s /system | cut -f1)" > $MODPATH/.SystemSizeK
 
 # Handle replace folders
 for TARGET in $REPLACE; do
