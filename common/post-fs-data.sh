@@ -1,6 +1,8 @@
 #!/system/bin/sh
+# Auto re-patch /system/etc/sysconfig/* across ROM/GApps updates
 
-# Auto re-patch /system/etc/sysconfig/*
+# Environment
+export PATH=/dev/magisk/bin:$PATH
 MODPATH=${0%/*}
 syscfg=/dev/magisk/mirror/system/etc/sysconfig
 syscfgTMP=/data/_syscfg

@@ -1,3 +1,6 @@
+# 2017.11.9 (201711090)
+- General optimizations
+
 # v2017.10.15 (201710150)
 * Redesigned/enhanced patching & auto-re-patching mechanisms.
 * New version code format YYYYMMDDD
