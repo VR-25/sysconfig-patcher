@@ -1,3 +1,8 @@
+# 2017.12.3 (201712030)
+- Better & wider compatibility -- from Magisk 12 all the way to 14.5, possibly previous and future versions too
+- Patching optimizations
+- Updated reference
+
 # 2017.11.9 (201711090)
 - General optimizations
 

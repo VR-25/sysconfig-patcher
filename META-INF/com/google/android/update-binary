@@ -33,7 +33,7 @@ mkdir -p $INSTALLER
 ##########################################################################################
 
 OUTFD=$2
-ZIP=$3
+ZIP="$3"
 
 ui_print() {
   if $BOOTMODE; then
@@ -80,10 +80,12 @@ $BOOTMODE && boot_actions || recovery_actions
 # Preparation
 ##########################################################################################
 
-ui_print "- Extracting module files" ###
-unzip -o "$ZIP" -d $INSTALLER 2>/dev/null
-$BOOTMODE && cp -r /dev/magisk/mirror/system/etc/sysconfig $INSTALLER/sysconfig \
-	|| cp -r /system/etc/sysconfig $INSTALLER/sysconfig
+ui_print "- Preparing files" ###
+unzip -oqq "$ZIP" -d $INSTALLER 2>/dev/null
+sysmirror=/sbin/.core/mirror/system
+[ -d $sysmirror ] || sysmirror=/dev/magisk/mirror/system
+$BOOTMODE && cp -r $sysmirror/etc/sysconfig $INSTALLER \
+	|| cp -r /system/etc/sysconfig $INSTALLER
 	
 request_size_check $INSTALLER
 
@@ -135,7 +137,7 @@ mkdir -p $MODPATH/system/etc
 for file in $INSTALLER/sysconfig/*; do
 	if [ -f "$file" ]; then
 		if grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file"; then
-			sed -i '/allow/s/<a/<!-- a/' $file
+			sed -i '/allow-in-.*-save/s/<a/<!-- a/' $file
 		else rm "$file"
 		fi
 	fi
@@ -144,10 +146,10 @@ sed -i '/.volta/s/<!-- a/<a/' $INSTALLER/sysconfig/google.xml
 
 # Copy files ###
 ui_print "- Copying files"
-mv $INSTALLER/sysconfig $MODPATH/system/etc
+mv $INSTALLER/sysconfig $MODPATH/system/etc/
 
 # Export /system size info for auto-re-patching (post-fs-data.sh) ###
-$BOOTMODE && echo "$(du -s /dev/magisk/mirror/system | cut -f1)" > $MODPATH/.SystemSizeK \
+$BOOTMODE && echo "$(du -s $sysmirror | cut -f1)" > $MODPATH/.SystemSizeK \
 	|| echo "$(du -s /system | cut -f1)" > $MODPATH/.SystemSizeK
 
 # Handle replace folders
@@ -161,12 +163,13 @@ $AUTOMOUNT && touch $MODPATH/auto_mount
 # prop files
 $PROPFILE && cp -af $INSTALLER/common/system.prop $MODPATH/system.prop
 
-# Module info
+# Module info ###
 cp -af $INSTALLER/module.prop $MODPATH/module.prop
 if $BOOTMODE; then
   # Update info for Magisk Manager
-  mktouch /magisk/$MODID/update
-  cp -af $INSTALLER/module.prop /magisk/$MODID/module.prop
+  ModPath=$(grep loop /proc/mounts | cut -d' ' -f2 | grep -Ev 'system|dev')/$MODID
+  mktouch $ModPath/update
+  cp -af $INSTALLER/module.prop $ModPath/module.prop
 fi
 
 # post-fs-data mode scripts
