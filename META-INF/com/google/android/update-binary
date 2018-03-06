@@ -1,103 +1,313 @@
-#!/sbin/sh
-##########################################################################################
-#
-# Magisk Module Template Install Script
-# by topjohnwu
-#
-##########################################################################################
+#!/sbin/sh -x
+# Sysconfig Patcher Installer
+# VR25 @ xda-developers
 
 # Detect whether in boot mode
 ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true || BOOTMODE=false
 $BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true
+$BOOTMODE || id | grep -q 'uid=0' || BOOTMODE=true
 
-# This path should work in any cases
-TMPDIR=/dev/tmp
-MOUNTPATH=/magisk
-IMG=/data/magisk.img
-if $BOOTMODE; then
-  MOUNTPATH=/dev/magisk_merge
-  IMG=/data/magisk_merge.img
-fi
-INSTALLER=$TMPDIR/install
-MAGISKBIN=/data/magisk
+# Add Magisk busybox to PATH
+$BOOTMODE && export PATH="/sbin/.core/busybox:/dev/magisk/bin:$PATH"
 
 # Default permissions
 umask 022
 
-# Initial cleanup
-rm -rf $TMPDIR 2>/dev/null
-mkdir -p $INSTALLER
+##########################################################################################
+# Functions
+##########################################################################################
+
+ui_print() {
+  $BOOTMODE && echo -e "$1" || echo -e "ui_print $1\nui_print" >> /proc/self/fd/$OUTFD
+}
+
+grep_prop() {
+  REGEX="s/^$1=//p"
+  shift
+  FILES=$@
+  [ -z "$FILES" ] && FILES='/system/build.prop'
+  sed -n "$REGEX" $FILES 2>/dev/null | head -n 1
+}
+
+is_mounted() { mountpoint -q "$1"; }
+
+mount_image() {
+  ui_print "- Mounting $1 to $2"
+  [ -d "$2" ] || mkdir -p "$2"
+  if (! is_mounted $2); then
+    LOOPDEVICE=
+    for LOOP in 0 1 2 3 4 5 6 7; do
+      if (! is_mounted $2); then
+        LOOPDEVICE=/dev/block/loop$LOOP
+        [ -f "$LOOPDEVICE" ] || mknod $LOOPDEVICE b 7 $LOOP 2>/dev/null
+        losetup $LOOPDEVICE $1
+        if [ "$?" -eq "0" ]; then
+          mount -t ext4 -o loop $LOOPDEVICE $2
+          is_mounted $2 || /system/bin/toolbox mount -t ext4 -o loop $LOOPDEVICE $2
+          is_mounted $2 || /system/bin/toybox mount -t ext4 -o loop $LOOPDEVICE $2
+        fi
+        is_mounted $2 && break
+      fi
+    done
+  fi
+}
+
+set_perm() {
+  chown $2:$3 "$1" || exit 1
+  chmod $4 "$1" || exit 1
+  [ -z "$5" ] && chcon 'u:object_r:system_file:s0' "$1" || chcon $5 "$1"
+}
+
+set_perm_recursive() {
+  find "$1" -type d 2>/dev/null | while read dir; do
+    set_perm "$dir" $2 $3 $4 $6
+  done
+  find "$1" -type f -o -type l 2>/dev/null | while read file; do
+    set_perm "$file" $2 $3 $5 $6
+  done
+}
+
+mktouch() {
+  mkdir -p ${1%/*} 2>/dev/null
+  [ -z "$2" ] && touch "$1" || echo "$2" > "$1"
+  chmod 644 $1
+}
+
+request_size_check() {
+  reqSizeM=`du -s $1 | cut -f1`
+  reqSizeM=$((reqSizeM / 1024 + 1))
+}
+
+request_zip_size_check() {
+  reqSizeM=`unzip -l "$1" | tail -n 1 | awk '{ print int($1 / 1048567 + 1) }'`
+}
+
+image_size_check() {
+  e2fsck -yf $1 >&2
+  curBlocks=`e2fsck -n $1 2>/dev/null | grep $1 | cut -d, -f3 | cut -d\  -f2`;
+  curUsedM=`echo "$curBlocks" | cut -d/ -f1`
+  curSizeM=`echo "$curBlocks" | cut -d/ -f1`
+  curFreeM=$(((curSizeM - curUsedM) * 4 / 1024))
+  curUsedM=$((curUsedM * 4 / 1024 + 1))
+  curSizeM=$((curSizeM * 4 / 1024))
+}
+
+resolve_link() {
+  RESOLVED="$1"
+  while RESOLVE=`readlink $RESOLVED`; do
+    RESOLVED=$RESOLVE
+  done
+  echo $RESOLVED
+}
+
+find_boot_image() {
+  BOOTIMAGE=
+  if [ ! -z $SLOT ]; then
+    BOOTIMAGE=`find /dev/block -iname boot$SLOT | head -n 1` 2>/dev/null
+  fi
+  if [ -z "$BOOTIMAGE" ]; then
+    # The slot info is incorrect...
+    SLOT=
+    for BLOCK in boot_a kern-a android_boot kernel boot lnx bootimg; do
+      BOOTIMAGE=`find /dev/block -iname $BLOCK | head -n 1` 2>/dev/null
+      [ ! -z $BOOTIMAGE ] && break
+    done
+  fi
+  # Recovery fallback
+  if [ -z "$BOOTIMAGE" ]; then
+    for FSTAB in /etc/*fstab*; do
+      BOOTIMAGE=`grep -v '#' $FSTAB | grep -E '/boot[^a-zA-Z]' | grep -oE '/dev/[a-zA-Z0-9_./-]*'`
+      [ ! -z $BOOTIMAGE ] && break
+    done
+  fi
+  [ ! -z "$BOOTIMAGE" ] && BOOTIMAGE=`resolve_link $BOOTIMAGE`
+}
+
+find_dtbo_image() {
+  DTBOIMAGE=`find /dev/block -iname dtbo$SLOT | head -n 1` 2>/dev/null
+  [ ! -z $DTBOIMAGE ] && DTBOIMAGE=`resolve_link $DTBOIMAGE`
+}
+
+
+mount_partitions() {
+  mount /data 2>/dev/null
+  mount /cache 2>/dev/null
+
+  # Check A/B slot
+  SLOT=`getprop ro.boot.slot_suffix`
+  if [ -z $SLOT ]; then
+    SLOT=_`getprop ro.boot.slot`
+    [ $SLOT = "_" ] && SLOT=
+  fi
+
+  # Check the boot image to make sure the slot actually make sense
+  find_boot_image
+  find_dtbo_image
+  [ -z $SLOT ] || ui_print "- A/B partition detected, current slot: $SLOT"
+
+  ui_print "- Mounting /system, /vendor"
+  is_mounted /system || [ -f /system/build.prop ] || mount -o ro /system 2>/dev/null
+  if ! is_mounted /system && ! [ -f /system/build.prop ]; then
+    SYSTEMBLOCK=`find /dev/block -iname system$SLOT | head -n 1`
+    mount -t ext4 -o ro $SYSTEMBLOCK /system
+  fi
+  is_mounted /system || [ -f /system/build.prop ] || abort "! Cannot mount /system"
+  cat /proc/mounts | grep -E '/dev/root|/system_root' >/dev/null && SKIP_INITRAMFS=true || SKIP_INITRAMFS=false
+  if [ -f /system/init.rc ]; then
+    SKIP_INITRAMFS=true
+    mkdir /system_root 2>/dev/null
+    mount --move /system /system_root
+    mount -o bind /system_root/system /system
+  fi
+  $SKIP_INITRAMFS && ui_print "- Device skip_initramfs detected"
+  if [ -L /system/vendor ]; then
+    # Seperate /vendor partition
+    is_mounted /vendor || mount -o ro /vendor 2>/dev/null
+    if ! is_mounted /vendor; then
+      VENDORBLOCK=`find /dev/block -iname vendor$SLOT | head -n 1`
+      mount -t ext4 -o ro $VENDORBLOCK /vendor
+    fi
+    is_mounted /vendor || abort "! Cannot mount /vendor"
+  fi
+}
 
 ##########################################################################################
-# Environment
+# Flashable update-binary preparation
 ##########################################################################################
 
 OUTFD=$2
 ZIP="$3"
 
-ui_print() {
-  if $BOOTMODE; then
-    echo "$1"
-  else
-    echo -n -e "ui_print $1\n" >> /proc/self/fd/$OUTFD
-    echo -n -e "ui_print\n" >> /proc/self/fd/$OUTFD
+readlink /proc/$$/fd/$OUTFD 2>/dev/null | grep /tmp >/dev/null
+if [ "$?" -eq "0" ]; then
+  OUTFD=0
+
+  for FD in `ls /proc/$$/fd`; do
+    readlink /proc/$$/fd/$FD 2>/dev/null | grep pipe >/dev/null
+    if [ "$?" -eq "0" ]; then
+      ps | grep " 3 $FD " | grep -v grep >/dev/null
+      if [ "$?" -eq "0" ]; then
+        OUTFD=$FD
+        break
+      fi
+    fi
+  done
+fi
+
+# This path should work in any cases
+TMPDIR=/dev/tmp
+
+INSTALLER=$TMPDIR/install
+MOUNTPATH=$TMPDIR/magisk_img
+$BOOTMODE && IMGNAME=magisk_merge.img || IMGNAME=magisk.img
+[ -d /data/adb/magisk ] && IMG=/data/adb/$IMGNAME || IMG=/data/$IMGNAME
+
+if [ ! -d /data/adb/magisk ] && [ ! -d /data/magisk ]; then
+	ui_print " "
+	ui_print "(!) No Magisk installation found or installed version not supported"
+	ui_print " "
+	exit 1
+fi
+
+# Initial cleanup
+rm -rf $TMPDIR 2>/dev/null
+mkdir -p $INSTALLER 2>/dev/null
+
+unzip -o "$ZIP" 'common/*' module.prop -d $INSTALLER >&2
+
+MODID="`grep_prop id $INSTALLER/module.prop`"
+TMP_MODPATH=$MOUNTPATH/$MODID
+MODPATH=$TMP_MODPATH
+
+# Find MODPATH
+if $BOOTMODE; then
+	for loop_device in /dev/block/loop*; do
+		if losetup $loop_device 2>/dev/null | grep -q '\(/data/.*magisk.img\)'; then
+			for MountPoint in $(grep $loop_device /proc/mounts | awk '{print $2}' | grep -v '/system'); do
+				if [ -d "$MountPoint/.core" ] || [ -d "$MountPoint/lost+found" ]; then
+					MountPoint=$MountPoint
+					MODPATH=$MountPoint/$MODID
+					mkdir -p $MODPATH 2>/dev/null
+					break 2
+				fi
+			done
+		fi
+	done
+
+	if [ ! -d "$MountPoint" ]; then
+    echo -e "(!) Magisk mount point not found"
+	  exit 1
   fi
-}
 
-require_new_magisk() {
-  ui_print "***********************************"
-  ui_print "! $MAGISKBIN isn't setup properly!"
-  ui_print "! Please install Magisk v14.0+!"
-  ui_print "***********************************"
-  exit 1
-}
+  if ! is_mounted $MountPoint; then
+    ui_print "(!) Magisk is not activated!... abort"
+    exit 1
+  fi
 
-ui_print "- Mounting /system, /vendor, /data, /cache"
-mount -o ro /system 2>/dev/null
-mount -o ro /vendor 2>/dev/null
-mount /data 2>/dev/null
-mount /cache 2>/dev/null
-
-# Utility functions must exist
-[ -f $MAGISKBIN/util_functions.sh ] || require_new_magisk
-# Load utility fuctions
-. $MAGISKBIN/util_functions.sh
-get_outfd
-
-$BOOTMODE && ! is_mounted /magisk && abort "! Magisk is not activated!"
-[ ! -f /system/build.prop ] && abort "! /system could not be mounted!"
-
-# Detect version and architecture
-api_level_arch_detect
-
-# You can get the Android API version from $API, the CPU architecture from $ARCH
-# Useful if you are creating Android version / platform dependent mods
-
-# We need busybox/binaries to be setup
-$BOOTMODE && boot_actions || recovery_actions
+fi
 
 ##########################################################################################
-# Preparation
+# Configs
 ##########################################################################################
 
-ui_print "- Preparing files" ###
-unzip -oqq "$ZIP" -d $INSTALLER 2>/dev/null
-sysmirror=/sbin/.core/mirror/system
-[ -d $sysmirror ] || sysmirror=/dev/magisk/mirror/system
-$BOOTMODE && cp -r $sysmirror/etc/sysconfig $INSTALLER \
-	|| cp -r /system/etc/sysconfig $INSTALLER
-	
-request_size_check $INSTALLER
+# Set to true if you need to enable Magic Mount
+# Most mods would like it to be enabled
+AUTOMOUNT=true
 
-[ ! -f $INSTALLER/config.sh ] && abort "! Unable to extract zip file!"
-# Load configurations
-. $INSTALLER/config.sh
+# Set to true if you need to load system.prop
+PROPFILE=false
 
-# Check the min magisk version
-MIN_VER=`grep_prop template $INSTALLER/module.prop`
-[ ! -z $MAGISK_VER_CODE -a $MAGISK_VER_CODE -ge $MIN_VER ] || require_new_magisk
-MODID=`grep_prop id $INSTALLER/module.prop`
-MODPATH=$MOUNTPATH/$MODID
+# Set to true if you need post-fs-data script
+POSTFSDATA=true
+
+# Set to true if you need late_start service script
+LATESTARTSERVICE=false
+
+ModVersion="`grep_prop version $INSTALLER/module.prop`"
+print_modname() {
+  ui_print "******************************"
+  ui_print "Sysconfig Patcher $ModVersion"
+  ui_print "    VR25 @ xda-developers    "
+  ui_print "******************************"
+}
+
+# List all directories you want to directly replace in the system
+# Check the documentations for more info about how Magic Mount works, and why you need this
+
+# This is an example
+REPLACE="
+/system/app/Youtube
+/system/priv-app/SystemUI
+/system/priv-app/Settings
+/system/framework
+"
+
+# Construct your own list here, it will override the example above
+# !DO NOT! remove this if you don't need to replace anything, leave it empty as it is now
+REPLACE="
+"
+
+set_permissions() {
+  # Only some special files require specific permissions
+  # The default permissions should be good enough for most cases
+
+  # Here are some examples for the set_perm functions:
+
+  # set_perm_recursive  <dirname>                <owner> <group> <dirpermission> <filepermission> <contexts> (default: u:object_r:system_file:s0)
+  # set_perm_recursive  $MODPATH/system/lib       0       0       0755            0644
+
+  # set_perm  <filename>                         <owner> <group> <permission> <contexts> (default: u:object_r:system_file:s0)
+  # set_perm  $MODPATH/system/bin/app_process32   0       2000    0755         u:object_r:zygote_exec:s0
+  # set_perm  $MODPATH/system/bin/dex2oat         0       2000    0755         u:object_r:dex2oat_exec:s0
+  # set_perm  $MODPATH/system/lib/libart.so       0       0       0644
+
+  # The following is default permissions, DO NOT remove
+  set_perm_recursive  $TMP_MODPATH  0  0  0755  0644
+}
+
+##########################################################################################
+# Main
+##########################################################################################
 
 # Print mod name
 print_modname
@@ -107,97 +317,154 @@ ui_print "******************************"
 ui_print "Powered by Magisk (@topjohnwu)"
 ui_print "******************************"
 
-##########################################################################################
-# Install
-##########################################################################################
+mount_partitions
 
-if [ -f "$IMG" ]; then
-  ui_print "- Found $IMG"
-  image_size_check $IMG
-  if [ "$reqSizeM" -gt "$curFreeM" ]; then
-    newSizeM=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
-    ui_print "- Resizing $IMG to ${newSizeM}M"
-    $MAGISKBIN/magisk --resizeimg $IMG $newSizeM
-  fi
-else
-  newSizeM=$((reqSizeM / 32 * 32 + 64));
-  ui_print "- Creating $IMG with size ${newSizeM}M"
-  $MAGISKBIN/magisk --createimg $IMG $newSizeM
+API=`grep_prop ro.build.version.sdk`
+ABI=`grep_prop ro.product.cpu.abi | cut -c-3`
+ABI2=`grep_prop ro.product.cpu.abi2 | cut -c-3`
+ABILONG=`grep_prop ro.product.cpu.abi`
+
+ARCH=arm
+IS64BIT=false
+if [ "$ABI" = "x86" ]; then ARCH=x86; fi;
+if [ "$ABI2" = "x86" ]; then ARCH=x86; fi;
+if [ "$ABILONG" = "arm64-v8a" ]; then ARCH=arm64; IS64BIT=true; fi;
+if [ "$ABILONG" = "x86_64" ]; then ARCH=x64; IS64BIT=true; fi;
+
+# You can get the Android API version from $API, the CPU architecture from $ARCH
+# Useful if you are creating Android version / platform dependent mods
+
+if ! is_mounted /data; then
+  IMG=/cache/$IMGNAME
+  ui_print " "
+  ui_print "***********************************"
+  ui_print "*      !! Data unavailable !!     *"
+  ui_print "* Magisk detection is impossible  *"
+  ui_print "* Installation will still proceed *"
+  ui_print "*  But please make sure you have  *"
+  ui_print "*        Magisk installed!!       *"
+  ui_print "***********************************"
+  ui_print " "
 fi
 
-ui_print "- Mounting $IMG to $MOUNTPATH"
-MAGISKLOOP=`$MAGISKBIN/magisk --mountimg $IMG $MOUNTPATH`
-is_mounted $MOUNTPATH || abort "! $IMG mount failed..."
+request_zip_size_check "$ZIP"
 
-# Create mod paths ###
-rm -rf $MODPATH 2>/dev/null
-mkdir -p $MODPATH/system/etc
+if [ -f "$IMG" ]; then
+  ui_print "- $IMG detected!"
+  image_size_check $IMG
+  if [ "$reqSizeM" -gt "$curFreeM" ]; then
+    SIZE=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
+    ui_print "- Resizing $IMG to ${SIZE}M..."
+    resize2fs $IMG ${SIZE}M >&2
+  fi
+else
+  SIZE=$((reqSizeM / 32 * 32 + 64));
+  ui_print "- Creating $IMG with size ${SIZE}M"
+  make_ext4fs -l ${SIZE}M $IMG >&2
+fi
 
-# Patch /system/etc/sysconfig/* for data and battery savings. ###
+mount_image $IMG $MOUNTPATH
+if ! is_mounted $MOUNTPATH; then
+  ui_print "(!) $IMG mount failed... abort"
+  exit 1
+fi
+
+##########################################################################################
+# Module space
+##########################################################################################
+
+SysPaths="/sbin/.core/mirror/system
+/dev/magisk/mirror/system
+/system"
+
+for p in $SysPaths; do
+	if [ $p/build.prop ]; then
+		cp -R $p/etc/sysconfig $INSTALLER
+		SysPath="$p"
+		break
+	fi
+done
+
+# Detect MagicGApps
+FoundMGA="$(find $MOUNTPATH /sbin/.core/img /magisk -type d -name MagicGApps 2>/dev/null | head -n1)"
+echo "$FoundMGA" | grep -q '/MagicGApps$' && cp -a "$FoundMGA"/etc/sysconfig/* $INSTALLER/system/etc/sysconfig 2>/dev/null
+
+# Create mod paths
+rm -rf $TMP_MODPATH 2>/dev/null
+mkdir -p $TMP_MODPATH/system/etc
+
+# Patch /system/etc/sysconfig/* for data and battery savings
 for file in $INSTALLER/sysconfig/*; do
 	if [ -f "$file" ]; then
 		if grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file"; then
 			sed -i '/allow-in-.*-save/s/<a/<!-- a/' $file
-		else rm "$file"
+		else
+			rm "$file"
 		fi
 	fi
 done
 sed -i '/.volta/s/<!-- a/<a/' $INSTALLER/sysconfig/google.xml
 
-# Copy files ###
-ui_print "- Copying files"
-mv $INSTALLER/sysconfig $MODPATH/system/etc/
+mv $INSTALLER/sysconfig $TMP_MODPATH/system/etc/
 
-# Export /system size info for auto-re-patching (post-fs-data.sh) ###
-$BOOTMODE && echo "$(du -s $sysmirror | cut -f1)" > $MODPATH/.SystemSizeK \
-	|| echo "$(du -s /system | cut -f1)" > $MODPATH/.SystemSizeK
+# Export /system size info for automatic re-patching across ROM/GApps updates
+du -s $SysPath | cut -f1 >$TMP_MODPATH/.SystemSizeK
+
+##########################################################################################
 
 # Handle replace folders
 for TARGET in $REPLACE; do
-  mktouch $MODPATH$TARGET/.replace
+  mktouch $TMP_MODPATH$TARGET/.replace
 done
 
 # Auto Mount
-$AUTOMOUNT && touch $MODPATH/auto_mount
+if $AUTOMOUNT; then
+  mktouch $TMP_MODPATH/auto_mount
+fi
 
 # prop files
-$PROPFILE && cp -af $INSTALLER/common/system.prop $MODPATH/system.prop
+if $PROPFILE; then
+  cp -af $INSTALLER/common/system.prop $TMP_MODPATH/system.prop
+fi
 
-# Module info ###
-cp -af $INSTALLER/module.prop $MODPATH/module.prop
+# Module info
+cp -af $INSTALLER/module.prop $TMP_MODPATH/module.prop
 if $BOOTMODE; then
   # Update info for Magisk Manager
-  ModPath=$(grep loop /proc/mounts | cut -d' ' -f2 | grep -Ev 'system|dev')/$MODID
-  mktouch $ModPath/update
-  cp -af $INSTALLER/module.prop $ModPath/module.prop
+  mktouch $MODPATH/update
+  cp -af $INSTALLER/module.prop $MODPATH/module.prop
 fi
 
 # post-fs-data mode scripts
-$POSTFSDATA && cp -af $INSTALLER/common/post-fs-data.sh $MODPATH/post-fs-data.sh
+if $POSTFSDATA; then
+  cp -af $INSTALLER/common/post-fs-data.sh $TMP_MODPATH/post-fs-data.sh
+fi
 
 # service mode scripts
-$LATESTARTSERVICE && cp -af $INSTALLER/common/service.sh $MODPATH/service.sh
+if $LATESTARTSERVICE; then
+  cp -af $INSTALLER/common/service.sh $TMP_MODPATH/service.sh
+fi
 
 ui_print "- Setting permissions"
 set_permissions
 
-##########################################################################################
-# Finalizing
-##########################################################################################
-
-$MAGISKBIN/magisk --umountimg $MOUNTPATH $MAGISKLOOP
+$BOOTMODE || ui_print "- Unmounting partitions"
+umount $MOUNTPATH
+losetup -d $LOOPDEVICE
 rmdir $MOUNTPATH
+if ! $BOOTMODE; then
+	umount -l /system_root 2>/dev/null
+	umount -l /system 2>/dev/null
+	umount -l /vendor 2>/dev/null
+fi
 
 # Shrink the image if possible
 image_size_check $IMG
-newSizeM=$((curUsedM / 32 * 32 + 64))
-if [ $curSizeM -gt $newSizeM ]; then
-  ui_print "- Shrinking $IMG to ${newSizeM}M"
-  $MAGISKBIN/magisk --resizeimg $IMG $newSizeM
+NEWDATASIZE=$((curUsedM / 32 * 32 + 32))
+if [ "$curSizeM" -gt "$NEWDATASIZE" ]; then
+  ui_print "- Shrinking $IMG to ${NEWDATASIZE}M..."
+  resize2fs $IMG ${NEWDATASIZE}M >&2
 fi
-
-$BOOTMODE || recovery_cleanup
-rm -rf $TMPDIR
 
 ui_print "- Done"
 exit 0
