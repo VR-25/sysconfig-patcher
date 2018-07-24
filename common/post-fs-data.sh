@@ -40,6 +40,7 @@ if [ "$(cat $ModPath/.SystemSizeK)" -ne "$(du -s $SysPath | cut -f1)" ]; then
 
 	rm -rf $ModPath/system/etc/sysconfig
 	mv /dev/syscfgp_tmp/sysconfig $ModPath/system/etc/
+  chmod -R 755 $ModPath
 
 	# Export /system size info for automatic re-patching across ROM/GApps updates
 	du -s $SysPath | cut -f1 >$ModPath/.SystemSizeK

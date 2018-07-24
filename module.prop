@@ -1,7 +1,7 @@
 id=sysconfig-patcher
 name=Sysconfig Patcher
-version=2018.3.6
-versionCode=201803060
+version=2018.7.24
+versionCode=201807240
 author=VR25 @ xda-developers
 description=Systemlessly patches all relevant XML files in /system/etc/sysconfig for data and battery savings & auto-re-patches across ROM/GApps updates. Takes down GMS Doze immunity.
 minMagisk=1500

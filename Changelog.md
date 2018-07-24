@@ -1,3 +1,8 @@
+**2018.7.24 (201807240)**
+- Fixed modPath detection issue (Magisk V16.6).
+- Minor optimizations
+- Updated documentation
+
 **2018.3.6 (201803060)**
 - Added support for A/B partition devices and MagicGApps module
 - Compatible with all major Magisk versions

@@ -3,7 +3,9 @@
 
 
 ### Disclaimer
-- This mod is provided as is, without warranty of any kind. I shall not be held responsible for anything that may go wrong due to the use/misuse of it.
+- This software is provided as is, in the hope that it will be useful, but without any warranty. Always read the reference prior to installing/updating it. While no cats have been harmed in any way, shape or form, I assume no responsibility under anything that might go wrong due to the use/misuse of it.
+- A copy of the GNU General Public License, version 3 or newer is included with every version. Please, read it prior to using, modifying and/or sharing any part of this work.
+- To avoid fraud, DO NOT mirror any link associated with the project.
 
 
 ### Description
@@ -24,6 +26,11 @@
 
 ### Recent Changes
 
+**2018.7.24 (201807240)**
+- Fixed modPath detection issue (Magisk V16.6).
+- Minor optimizations
+- Updated documentation
+
 **2018.3.6 (201803060)**
 - Added support for A/B partition devices and MagicGApps module
 - Compatible with all major Magisk versions
@@ -33,6 +40,3 @@
 - Better & wider compatibility -- from Magisk 12 all the way to 14.5, possibly previous and future versions too
 - Patching optimizations
 - Updated reference
-
-**2017.11.9 (201711090)**
-- General optimizations
