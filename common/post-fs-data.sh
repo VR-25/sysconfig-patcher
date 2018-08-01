@@ -1,48 +1,61 @@
 #!/system/bin/sh
-# Automatically re-patch /system/etc/sysconfig/* across ROM/GApps updates
-# VR25 @ xda-developers
+# Sysconfig Patcher
+# (c) 2017-2018, VR25 @ xda-developers
+# License: GPL v3+
 
 
-# Environment
-ModPath=${0%/*}
-export PATH="/sbin/.core/busybox:/dev/magisk/bin:$PATH"
-SysPaths="/sbin/.core/mirror/system
-/dev/magisk/mirror/system"
-rm -rf /dev/syscfgp_tmp 2>/dev/null
+modPath=${0%/*}
+PATH=/sbin/.core/busybox:/dev/magisk/bin
+sysMirror=/sbin/.core/mirror/system
+etcPath=$modPath/system/etc
+tmpDir=/dev/tmpDir
+  
+# verbosity engine
+newLog=$modPath/sysconfig_patcher_verbose_log.txt
+oldLog=$modPath/sysconfig_patcher_verbose_previous_log.txt
+[[ -f $newLog ]] && mv $newLog $oldLog
+set -x 2>>$newLog
+
+patchf() {
+    for file in $1/*; do
+      grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file" \
+        && sed -i '/allow-in-.*-save/s/<a/<!-- a/' "$file" \
+        || rm "$file"
+    done
+}
+
+[[ -f $sysMirror/build.prop ]] || sysMirror=/dev/magisk/mirror/system
+[[ -f $sysMirror/build.prop ]] || { echo -e "(!) sysMirror not found\nls: $(ls $sysMirror)"; exit 1; }
+
+[[ -d $tmpDir ]] && rm -rf $tmpDir
 
 
-for p in $SysPaths; do
-	if [ $p/build.prop ]; then
-		SysPath="$p"
-		break
-	fi
-done
-
-
-if [ "$(cat $ModPath/.SystemSizeK)" -ne "$(du -s $SysPath | cut -f1)" ]; then
-	mkdir /dev/syscfgp_tmp
-	cp -R $SysPath/etc/sysconfig /dev/syscfgp_tmp
+# patch sysconfig/*
+if [[ $(cat $modPath/.systemSizeK 2>/dev/null) -ne $(du -s $sysMirror | awk '{print $1}') || ! -d $etcPath ]]; then
+  mkdir $tmpDir
+  cp -R $sysMirror/etc/sysconfig $tmpDir
 	
-	# Detect MagicGApps
-	FoundMGA="$(find /sbin/.core/img /magisk -type d -name MagicGApps 2>/dev/null | head -n1)"
-	echo "$FoundMGA" | grep -q '/MagicGApps$' && cp -a "$FoundMGA"/etc/sysconfig/* /dev/syscfgp_tmp/sysconfig 2>/dev/null
+  patchf $tmpDir/sysconfig
 	
-	for file in /dev/syscfgp_tmp/sysconfig/*; do
-		if [ -f "$file" ]; then
-			if grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file"; then
-				sed -i '/allow-in-.*-save/s/<a/<!-- a/' $file
-			else
-				rm "$file"
-			fi
-		fi
-	done
-	sed -i '/.volta/s/<!-- a/<a/' /dev/syscfgp_tmp/sysconfig/google.xml
-
-	rm -rf $ModPath/system/etc/sysconfig
-	mv /dev/syscfgp_tmp/sysconfig $ModPath/system/etc/
-  chmod -R 755 $ModPath
-
-	# Export /system size info for automatic re-patching across ROM/GApps updates
-	du -s $SysPath | cut -f1 >$ModPath/.SystemSizeK
+  rm -rf $modPath/system/etc/sysconfig
+  [[ -d $etcPath ]]  || mkdir -p $etcPath
+  mv $tmpDir/sysconfig $etcPath/
+  chmod -R 755 $etcPath
+  chmod 644 $etcPath/*
+  
+  # export /system size info for automatic re-patching across ROM/GApps updates
+  du -s $sysMirror | awk '{print $1}' >$modPath/.systemSizeK
 fi
+
+
+# detect & patch MagicGApps sysconfig/*
+cd ..
+if [[ -d $PWD/MagicGApps ]]; then
+  if [[ $(cat $modPath/.MagicGAppsSizeK 2>/dev/null) -ne $(du -s $PWD/MagicGApps | awk '{print $1}') ]]; then
+    patchf $PWD/MagicGApps/system/etc/sysconfig
+    chmod 644 $PWD/MagicGApps/system/etc/sysconfig/*
+    du -s $PWD/MagicGApps | awk '{print $1}' >$modPath/.MagicGAppsSizeK
+  fi
+fi
+
 exit 0

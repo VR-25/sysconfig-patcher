@@ -1,30 +1,46 @@
 # Sysconfig Patcher
-## VR25 @ xda-developers
+## (c) 2017-2018, VR25 @ xda-developers
+### License: GPL v3+
 
 
-### Disclaimer
-- This software is provided as is, in the hope that it will be useful, but without any warranty. Always read the reference prior to installing/updating it. While no cats have been harmed in any way, shape or form, I assume no responsibility under anything that might go wrong due to the use/misuse of it.
-- A copy of the GNU General Public License, version 3 or newer is included with every version. Please, read it prior to using, modifying and/or sharing any part of this work.
-- To avoid fraud, DO NOT mirror any link associated with the project.
+
+#### DISCLAIMER
+
+- This software is provided as is, in the hope that it will be useful, but without any warranty. Always read the reference prior to installing/updating. While no cats have been harmed, I assume no responsibility under anything that might go wrong due to the use/misuse of it.
+- A copy of the GNU General Public License, version 3 or newer ships with every build. Please, read it prior to using, modifying and/or sharing any part of this work.
+- To prevent fraud, DO NOT mirror any link associated with this project.
 
 
-### Description
-- Systemlessly patches all relevant XML files in /system/etc/sysconfig for data and battery savings & auto-re-patches across ROM/GApps updates. Takes down GMS Doze immunity.
-- If you're familiar with `DozeGMS` or similar module/tweak -- Sysconfig Patcher goes even further than that. In addition to `google.xml`, it also patches any other XML files in `/system/etc/sysconfig` containing battery &/or power white-listed packages. This way, these packages will no longer have unrestricted access to data & power intensive resources without the user's explicit consent.
+
+#### DESCRIPTION
+
+- Systemlessly patches all relevant XML files in /system/etc/sysconfig for data and battery savings & auto-re-patches across ROM/GApps updates. Thus, these packages (i.e., Google Play Services) will no longer have unrestricted access to data & power intensive resources without the user's explicit consent. Doze and data saver will act upon them.
 
 
-### SETUP STEPS
-- Remove any/all similar module(s)
-- Install from Magisk Manager or TWRP
-- Reboot
+
+#### SETUP STEPS
+
+1. Remove any/all similar module(s)
+2. Install from Magisk Manager or TWRP
+3. Reboot
 
 
-### Online Support
+
+#### ONLINE SUPPORT
+
 - [Git Repository](https://github.com/Magisk-Modules-Repo/sysconfig-patcher)
 - [XDA Thread](https://forum.xda-developers.com/apps/magisk/module-sysconfig-patcher-t3668435)
 
 
-### Recent Changes
+
+#### RECENT CHANGES
+
+**2018.8.1 (201808010)**
+- Better MagicGApps support
+- General optimizations
+- New and simplified installer
+- Striped down (removed unnecessary code & files)
+- Updated documentation
 
 **2018.7.24 (201807240)**
 - Fixed modPath detection issue (Magisk V16.6).
@@ -35,8 +51,3 @@
 - Added support for A/B partition devices and MagicGApps module
 - Compatible with all major Magisk versions
 - General bug fixes & optimizations
-
-**2017.12.3 (201712030)**
-- Better & wider compatibility -- from Magisk 12 all the way to 14.5, possibly previous and future versions too
-- Patching optimizations
-- Updated reference
