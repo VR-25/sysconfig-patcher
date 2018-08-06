@@ -5,56 +5,62 @@
 
 
 modPath=${0%/*}
-PATH=/sbin/.core/busybox:/dev/magisk/bin
-sysMirror=/sbin/.core/mirror/system
-etcPath=$modPath/system/etc
-tmpDir=/dev/tmpDir
-  
-# verbosity engine
 newLog=$modPath/sysconfig_patcher_verbose_log.txt
 oldLog=$modPath/sysconfig_patcher_verbose_previous_log.txt
-[[ -f $newLog ]] && mv $newLog $oldLog
+
+# verbose generator
+[ -f "$newLog" ] && mv $newLog $oldLog
 set -x 2>>$newLog
+
+tmpDir=/dev/tmpDir
+etcPath=$modPath/system/etc
+
+system=/system
+[ -d /system_root ] && system=/system_root/system
+sysMirror=/sbin/.core/mirror$system
+
+[ -f "$sysMirror/build.prop" ] || sysMirror=/dev/magisk/mirror$system
+[ -f "$sysMirror/build.prop" ] || { echo -e "(!) sysMirror not found\nls: $(ls $sysMirror)"; exit 1; }
 
 patchf() {
     for file in $1/*; do
       grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file" \
         && sed -i '/allow-in-.*-save/s/<a/<!-- a/' "$file" \
-        || rm "$file"
+        || { [ -z "$2" ] && rm "$file"; }
     done
 }
 
-[[ -f $sysMirror/build.prop ]] || sysMirror=/dev/magisk/mirror/system
-[[ -f $sysMirror/build.prop ]] || { echo -e "(!) sysMirror not found\nls: $(ls $sysMirror)"; exit 1; }
-
-[[ -d $tmpDir ]] && rm -rf $tmpDir
-
 
 # patch sysconfig/*
-if [[ $(cat $modPath/.systemSizeK 2>/dev/null) -ne $(du -s $sysMirror | awk '{print $1}') || ! -d $etcPath ]]; then
+if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" != "$(du -s $sysMirror | awk '{print $1}')" -o ! -d "$etcPath/sysconfig" ]; then
   mkdir $tmpDir
   cp -R $sysMirror/etc/sysconfig $tmpDir
-	
+
   patchf $tmpDir/sysconfig
-	
-  rm -rf $modPath/system/etc/sysconfig
-  [[ -d $etcPath ]]  || mkdir -p $etcPath
+
+  rm -rf $etcPath/sysconfig 2>/dev/null
+  mkdir -p $etcPath 2>/dev/null
   mv $tmpDir/sysconfig $etcPath/
   chmod -R 755 $etcPath
-  chmod 644 $etcPath/*
-  
-  # export /system size info for automatic re-patching across ROM/GApps updates
+  chmod 644 $etcPath/sysconfig/*
+  chcon 'u:object_r:system_file:s0' $etcPath/sysconfig/*
+  set -u
+  rm -rf $tmpDir
+  set +u
+
+  # export /system size for automatic re-patching across ROM/GApps updates
   du -s $sysMirror | awk '{print $1}' >$modPath/.systemSizeK
 fi
 
 
 # detect & patch MagicGApps sysconfig/*
-cd ..
-if [[ -d $PWD/MagicGApps ]]; then
-  if [[ $(cat $modPath/.MagicGAppsSizeK 2>/dev/null) -ne $(du -s $PWD/MagicGApps | awk '{print $1}') ]]; then
-    patchf $PWD/MagicGApps/system/etc/sysconfig
-    chmod 644 $PWD/MagicGApps/system/etc/sysconfig/*
-    du -s $PWD/MagicGApps | awk '{print $1}' >$modPath/.MagicGAppsSizeK
+mgaDir="$(echo $modPath | sed 's/sysconfig-patcher/MagicGApps/')"
+if [ -d "$mgaDir" ]; then
+  if [ "$(cat $modPath/.MagicGAppsSizeK 2>/dev/null)" != "$(du -s $mgaDir | awk '{print $1}')" ]; then
+    patchf $mgaDir/system/etc/sysconfig noremove
+    chmod 644 $mgaDir/system/etc/sysconfig/*
+    chcon 'u:object_r:system_file:s0' $mgaDir/system/etc/sysconfig/*
+    du -s $mgaDir | awk '{print $1}' >$modPath/.MagicGAppsSizeK
   fi
 fi
 

@@ -35,6 +35,10 @@
 
 #### RECENT CHANGES
 
+**2018.8.6 (201808060)**
+- Fixed issues with MagicGApps & A/B partition devices
+- General optimizations
+
 **2018.8.1 (201808010)**
 - Better MagicGApps support
 - General optimizations
@@ -46,8 +50,3 @@
 - Fixed modPath detection issue (Magisk V16.6).
 - Minor optimizations
 - Updated documentation
-
-**2018.3.6 (201803060)**
-- Added support for A/B partition devices and MagicGApps module
-- Compatible with all major Magisk versions
-- General bug fixes & optimizations
