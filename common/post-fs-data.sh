@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # Sysconfig Patcher
-# (c) 2017-2018, VR25 @ xda-developers
+# Copyright (C) 2017-2018, VR25 @ xda-developers
 # License: GPL v3+
 
 
@@ -12,7 +12,7 @@ oldLog=$modPath/sysconfig_patcher_verbose_previous_log.txt
 [ -f "$newLog" ] && mv $newLog $oldLog
 set -x 2>>$newLog
 
-tmpDir=/dev/tmpDir
+TMPDIR=/dev/tmp
 etcPath=$modPath/system/etc
 
 system=/system
@@ -23,29 +23,29 @@ sysMirror=/sbin/.core/mirror$system
 [ -f "$sysMirror/build.prop" ] || { echo -e "(!) sysMirror not found\nls: $(ls $sysMirror)"; exit 1; }
 
 patchf() {
-    for file in $1/*; do
-      grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$file" \
-        && sed -i '/allow-in-.*-save/s/<a/<!-- a/' "$file" \
-        || { [ -z "$2" ] && rm "$file"; }
+    for f in $1/*; do
+      grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$f" \
+        && sed -i "/$(grep 'allow-in-.*-save' "$f" | grep -iv 'ims|telep|downl|qualc|sony|shell')/s/<a/<!-- a/" "$f" \
+        || { [ -z "$2" ] && rm "$f"; }
     done
 }
 
 
 # patch sysconfig/*
 if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" != "$(du -s $sysMirror | awk '{print $1}')" -o ! -d "$etcPath/sysconfig" ]; then
-  mkdir $tmpDir
-  cp -R $sysMirror/etc/sysconfig $tmpDir
+  mkdir $TMPDIR
+  cp -R $sysMirror/etc/sysconfig $TMPDIR
 
-  patchf $tmpDir/sysconfig
+  patchf $TMPDIR/sysconfig
 
   rm -rf $etcPath/sysconfig 2>/dev/null
   mkdir -p $etcPath 2>/dev/null
-  mv $tmpDir/sysconfig $etcPath/
+  mv $TMPDIR/sysconfig $etcPath/
   chmod -R 755 $etcPath
   chmod 644 $etcPath/sysconfig/*
   chcon 'u:object_r:system_file:s0' $etcPath/sysconfig/*
   set -u
-  rm -rf $tmpDir
+  rm -rf $TMPDIR
   set +u
 
   # export /system size for automatic re-patching across ROM/GApps updates
