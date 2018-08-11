@@ -14,7 +14,7 @@
 
 #### DESCRIPTION
 
-- Systemlessly patches all relevant XML files in /system/etc/sysconfig for data and battery savings & auto-re-patches across ROM/GApps updates. Thus, these packages (i.e., Google Play Services) will no longer have unrestricted access to data & power intensive resources without the user's explicit consent. Doze and data saver will act upon them. Important packages such as Qualcomm's, Download Manager, etc., are not affected.
+- Systemlessly patches all relevant XML files in /system/etc/sysconfig for data and battery savings & auto-re-patches across ROM/GApps updates. Thus, these packages (i.e., Google Play Services) will no longer have unrestricted access to data & power intensive resources without the user's explicit consent. Doze and data saver will act upon them. Important packages such as Shell, Qualcomm's, Download Manager, etc., are not affected.
 
 
 
@@ -35,6 +35,13 @@
 
 #### RECENT CHANGES
 
+**2018.8.11-2 (201808112)**
+- General fixes & optimizations
+
+**2018.8.11-1 (201808111)**
+- Added support for MagicGApps 2018.8.11
+- Fixed "make_ext4fs not found" (devices running Android P)
+
 **2018.8.11 (201808110)**
 - Added exceptions for important packages (i.e., Qualcomm's, Sony, Download Manager, etc.)
 - General optimizations
@@ -42,15 +49,3 @@
 **2018.8.6 (201808060)**
 - Fixed issues with MagicGApps & A/B partition devices
 - General optimizations
-
-**2018.8.1 (201808010)**
-- Better MagicGApps support
-- General optimizations
-- New and simplified installer
-- Striped down (removed unnecessary code & files)
-- Updated documentation
-
-**2018.7.24 (201807240)**
-- Fixed modPath detection issue (Magisk V16.6).
-- Minor optimizations
-- Updated documentation

@@ -8,6 +8,9 @@ modPath=${0%/*}
 newLog=$modPath/sysconfig_patcher_verbose_log.txt
 oldLog=$modPath/sysconfig_patcher_verbose_previous_log.txt
 
+umask 022
+set -u
+
 # verbose generator
 [ -f "$newLog" ] && mv $newLog $oldLog
 set -x 2>>$newLog
@@ -24,9 +27,16 @@ sysMirror=/sbin/.core/mirror$system
 
 patchf() {
     for f in $1/*; do
-      grep -Eq '<allow-in-power-save|<allow-in-data-usage-save' "$f" \
-        && sed -i "/$(grep 'allow-in-.*-save' "$f" | grep -iv 'ims|telep|downl|qualc|sony|shell')/s/<a/<!-- a/" "$f" \
-        || { [ -z "$2" ] && rm "$f"; }
+      (if grep -q '\<allow.in.*.save' "$f"; then
+        sed -i '/<allow.in.*.save/s/<a/<!-- a/' "$f"
+        for i in ims teleph downl qualc sony shell; do
+          sed -i "/<!-- allow.in.*.save.*$i/s/<!-- a/<a/" "$f"
+        done
+      else
+        set +u
+        [ -z "$2" ] && rm "$f"
+        set -u
+      fi) &
     done
 }
 
@@ -55,13 +65,28 @@ fi
 
 # detect & patch MagicGApps sysconfig/*
 mgaDir="$(echo $modPath | sed 's/sysconfig-patcher/MagicGApps/')"
+sysconfigPath2=/data/adb/magisk_simple/system/etc/sysconfig
+sysconfigPath3=/cache/magisk_mount/system/etc/sysconfig
 if [ -d "$mgaDir" ]; then
-  if [ "$(cat $modPath/.MagicGAppsSizeK 2>/dev/null)" != "$(du -s $mgaDir | awk '{print $1}')" ]; then
+  if [ "$(cat $modPath/.magicGAppsSizeK 2>/dev/null)" != "$(du -s $mgaDir | awk '{print $1}')" ]; then
     patchf $mgaDir/system/etc/sysconfig noremove
     chmod 644 $mgaDir/system/etc/sysconfig/*
     chcon 'u:object_r:system_file:s0' $mgaDir/system/etc/sysconfig/*
-    du -s $mgaDir | awk '{print $1}' >$modPath/.MagicGAppsSizeK
+    cp -af $mgaDir/system/etc/sysconfig/* $sysconfigPath2/
+    cp -af $mgaDir/system/etc/sysconfig/* $sysconfigPath3/
+    du -s $mgaDir | awk '{print $1}' >$modPath/.magicGAppsSizeK
   fi
+
+  if [ ! -f $sysconfigPath2/google.xml ]; then
+    mkdir -p $sysconfigPath2 2>/dev/null
+    cp -af $mgaDir/system/etc/sysconfig/* $sysconfigPath2/
+  fi
+
+  if [ ! -f $sysconfigPath3/google.xml ]; then
+    mkdir -p $sysconfigPath3 2>/dev/null
+    [ -d "$sysconfigPath3" ] && cp -af $mgaDir/system/etc/sysconfig/* $sysconfigPath3/
+  fi
+
 fi
 
 exit 0

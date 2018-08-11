@@ -188,14 +188,18 @@ if [ -f "$IMG" ]; then
   ui_print "- $IMG detected!"
   image_size_check $IMG
   if [ "$reqSizeM" -gt "$curFreeM" ]; then
-  SIZE=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
-  ui_print "- Resizing $IMG to ${SIZE}M..."
-  resize2fs $IMG ${SIZE}M >&2
+    SIZE=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
+    ui_print "- Resizing $IMG to ${SIZE}M..."
+    [ -f /data/adb/magisk/magisk ] \
+      && /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
+      || resize2fs $IMG ${SIZE}M >&2
   fi
 else
   SIZE=$((reqSizeM / 32 * 32 + 64));
   ui_print "- Creating $IMG with size ${SIZE}M"
-  make_ext4fs -l ${SIZE}M $IMG >&2
+  [ -f /data/adb/magisk/magisk ] \
+    && /data/adb/magisk/magisk --createimg $IMG $SIZE >&2 \
+    || make_ext4fs -l ${SIZE}M $IMG >&2
 fi
 
 mount_image $IMG $mountPath
@@ -241,7 +245,9 @@ image_size_check $IMG
 NEWDATASIZE=$((curUsedM / 32 * 32 + 32))
 if [ "$curSizeM" -gt "$NEWDATASIZE" ]; then
   ui_print "- Shrinking $IMG to ${NEWDATASIZE}M..."
-  resize2fs $IMG ${NEWDATASIZE}M >&2
+  [ -f /data/adb/magisk/magisk ] \
+    && /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
+    || resize2fs $IMG ${SIZE}M >&2
 fi
 
 if ! $bootMode; then
