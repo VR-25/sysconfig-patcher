@@ -5,8 +5,8 @@
 
 
 modPath=${0%/*}
-newLog=$modPath/sysconfig_patcher_verbose_log.txt
-oldLog=$modPath/sysconfig_patcher_verbose_previous_log.txt
+newLog=$modPath/sp_log.txt
+oldLog=$modPath/sp_previous_log.txt
 
 umask 022
 set -u
@@ -18,11 +18,8 @@ set -x 2>>$newLog
 TMPDIR=/dev/tmp
 etcPath=$modPath/system/etc
 
-system=/system
-[ -d /system_root ] && system=/system_root/system
-sysMirror=/sbin/.core/mirror$system
+sysMirror="$(dirname "$(find /sbin/.core/mirror/system /dev/magisk/mirror/system -type f -name build.prop 2>/dev/null | head -n1)")"
 
-[ -f "$sysMirror/build.prop" ] || sysMirror=/dev/magisk/mirror$system
 [ -f "$sysMirror/build.prop" ] || { echo -e "(!) sysMirror not found\nls: $(ls $sysMirror)"; exit 1; }
 
 patchf() {

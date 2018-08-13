@@ -190,15 +190,13 @@ if [ -f "$IMG" ]; then
   if [ "$reqSizeM" -gt "$curFreeM" ]; then
     SIZE=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
     ui_print "- Resizing $IMG to ${SIZE}M..."
-    [ -f /data/adb/magisk/magisk ] \
-      && /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
+    /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
       || resize2fs $IMG ${SIZE}M >&2
   fi
 else
   SIZE=$((reqSizeM / 32 * 32 + 64));
   ui_print "- Creating $IMG with size ${SIZE}M"
-  [ -f /data/adb/magisk/magisk ] \
-    && /data/adb/magisk/magisk --createimg $IMG $SIZE >&2 \
+  /data/adb/magisk/magisk --createimg $IMG $SIZE >&2 \
     || make_ext4fs -l ${SIZE}M $IMG >&2
 fi
 
@@ -245,8 +243,7 @@ image_size_check $IMG
 NEWDATASIZE=$((curUsedM / 32 * 32 + 32))
 if [ "$curSizeM" -gt "$NEWDATASIZE" ]; then
   ui_print "- Shrinking $IMG to ${NEWDATASIZE}M..."
-  [ -f /data/adb/magisk/magisk ] \
-    && /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
+  /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
     || resize2fs $IMG ${SIZE}M >&2
 fi
 
@@ -257,4 +254,20 @@ fi
 
 ui_print "- End"
 ui_print " "
+
+##########################################################################################
+# module-specific code
+##########################################################################################
+
+ui_print "  WHAT'S NEW"
+ui_print "    Fixed \"sysMirror not found\" on A/B partition devices (i.e., Pixel family)"
+ui_print "    General optimizations"
+ui_print " "
+
+grep -q '16\.7' /data/adb/magisk/util_functions.sh 2>/dev/null \
+  && ui_print "  *Note*: a Magisk 16.7 bug causes $modID to generate empty logs (\"set -x\" doesn't work properly)" \
+  && ui_print " "
+
+##########################################################################################
+
 exit 0

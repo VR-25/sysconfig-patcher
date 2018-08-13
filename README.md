@@ -33,7 +33,11 @@
 
 
 
-#### RECENT CHANGES
+#### LATEST CHANGES
+
+**2018.8.13 (201808130)**
+- Fixed "sysMirror not found" on A/B partition devices (i.e., Pixel family)
+- General optimizations
 
 **2018.8.11-2 (201808112)**
 - General fixes & optimizations
@@ -41,11 +45,3 @@
 **2018.8.11-1 (201808111)**
 - Added support for MagicGApps 2018.8.11
 - Fixed "make_ext4fs not found" (devices running Android P)
-
-**2018.8.11 (201808110)**
-- Added exceptions for important packages (i.e., Qualcomm's, Sony, Download Manager, etc.)
-- General optimizations
-
-**2018.8.6 (201808060)**
-- Fixed issues with MagicGApps & A/B partition devices
-- General optimizations
