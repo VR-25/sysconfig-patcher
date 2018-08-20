@@ -1,12 +1,12 @@
 #!/sbin/sh -x
-# Sysconfig Patcher Installer
+# Sysconfig Patcher (sp) Installer
 # Copyright (C) 2017-2018, VR25 @ xda-developers
 # License: GPL v3+
 
 # detect whether in bootmode
 getprop | grep zygote | grep -q running && bootMode=true || bootMode=false
 
-# default perms
+# default perms (d=rwx-rw-rw, f=rw-r-r)
 umask 022
 
 ui_print() {
@@ -26,18 +26,13 @@ is_mounted() { mountpoint -q "$1" 2>/dev/null; }
 mount_image() {
   ui_print "- Mounting $1 to $2"
   [ -d "$2" ] || mkdir -p "$2"
-  if (! is_mounted $2); then
-    loopDevice=
-    for LOOP in 0 1 2 3 4 5 6 7; do
+  if ! is_mounted $2; then
+    for n in 0 1 2 3 4 5 6 7; do
       if (! is_mounted $2); then
-        loopDevice=/dev/block/loop$LOOP
-        [ -f "$loopDevice" ] || mknod $loopDevice b 7 $LOOP 2>/dev/null
+        loopDevice=/dev/block/loop$n
+        [ -b "$loopDevice" ] || mknod $loopDevice b 7 $n 2>/dev/null
         losetup $loopDevice $1
-        if [ "$?" -eq "0" ]; then
-          mount -t ext4 -o loop $loopDevice $2
-          is_mounted $2 || /system/bin/toolbox mount -t ext4 -o loop $loopDevice $2
-          is_mounted $2 || /system/bin/toybox mount -t ext4 -o loop $loopDevice $2
-        fi
+        [ "$?" -eq "0" ] && mount -t ext4 -o loop $loopDevice $2
         is_mounted $2 && break
       fi
     done
@@ -96,50 +91,28 @@ print_modname() {
   ui_print " "
 }
 
-set_permissions() {
-  # Only some special files require specific permissions
-  # The default permissions should be good enough for most cases
-
-  # Here are some examples for the set_perm functions:
-
-  # set_perm_recursive  <dirname>                <owner> <group> <dirpermission> <filepermission> <contexts> (default: u:object_r:system_file:s0)
-  # set_perm_recursive  $modPath/system/lib       0       0       0755            0644
-
-  # set_perm  <filename>                         <owner> <group> <permission> <contexts> (default: u:object_r:system_file:s0)
-  # set_perm  $modPath/system/bin/app_process32   0       2000    0755         u:object_r:zygote_exec:s0
-  # set_perm  $modPath/system/bin/dex2oat         0       2000    0755         u:object_r:dex2oat_exec:s0
-  # set_perm  $modPath/system/lib/libart.so       0       0       0644
-
-  # The following are default permissions, DO NOT remove
-  set_perm_recursive  $tmpModPath  0  0  0755  0644
-
-  for f in $tmpModPath/bin/* $(find $tmpModPath -type f -name $modID) $(find $tmpModPath -type f -name *.sh); do
-    [ -f "$f" ] && set_perm $f 0 0 0755
-  done
-}
-
 OUTFD=$2
 ZIP="$3"
 
 readlink /proc/$$/fd/$OUTFD 2>/dev/null | grep /tmp >/dev/null
 if [ "$?" -eq "0" ]; then
   OUTFD=0
-
   for FD in `ls /proc/$$/fd`; do
-  readlink /proc/$$/fd/$FD 2>/dev/null | grep pipe >/dev/null
-  if [ "$?" -eq "0" ]; then
-    ps | grep " 3 $FD " | grep -v grep >/dev/null
+    readlink /proc/$$/fd/$FD 2>/dev/null | grep pipe >/dev/null
     if [ "$?" -eq "0" ]; then
-    OUTFD=$FD
-    break
+      ps | grep " 3 $FD " | grep -v grep >/dev/null
+      if [ "$?" -eq "0" ]; then
+        OUTFD=$FD
+        break
+      fi
     fi
-  fi
   done
 fi
 
-tmpDir=/dev/tmp
-INSTALLER=$tmpDir/install
-mountPath=$tmpDir/magisk_img
+TMPDIR=/dev/tmp
+INSTALLER=$TMPDIR/install
+mountPath=$TMPDIR/magisk_img
+magiskBin=/data/adb/magisk/magisk
 $bootMode && imgName=magisk_merge.img || imgName=magisk.img
 [ -d /data/adb/magisk ] && IMG=/data/adb/$imgName || IMG=/data/$imgName
 
@@ -151,13 +124,13 @@ if [ ! -d /data/adb/magisk ] && [ ! -d /data/magisk ]; then
 fi
 
 # initial cleanup
-rm -rf $tmpDir 2>/dev/null
+rm -rf $TMPDIR 2>/dev/null
 mkdir -p $INSTALLER 2>/dev/null
 
-unzip -o "$ZIP" 'common/*' module.prop -d $INSTALLER >&2
+unzip -o "$ZIP" module.prop -d $INSTALLER >&2
 
-modID="`grep_prop id $INSTALLER/module.prop`"
-tmpModPath=$mountPath/$modID
+modId="`grep_prop id $INSTALLER/module.prop`"
+tmpModPath=$mountPath/$modId
 modPath=$tmpModPath
 
 # find modPath
@@ -165,7 +138,7 @@ if $bootMode; then
   for mountPoint in /sbin/.core/img /magisk; do
     if [ -d "$mountPoint/.core" ] || [ -d "$mountPoint/lost+found" ]; then
       mountPoint=$mountPoint
-      modPath=$mountPoint/$modID
+      modPath=$mountPoint/$modId
       break
     fi
   done
@@ -177,10 +150,10 @@ fi
 print_modname
 
 $bootMode || ui_print "- Mounting partitions"
-mount -o ro /system 2>/dev/null
-mount -o ro /vendor 2>/dev/null
-mount /data 2>/dev/null
-mount /cache 2>/dev/null
+{ mount -o ro /system
+mount -o ro /vendor
+mount /data
+mount /cache; } 2>/dev/null
 
 request_zip_size_check "$ZIP"
 
@@ -190,14 +163,16 @@ if [ -f "$IMG" ]; then
   if [ "$reqSizeM" -gt "$curFreeM" ]; then
     SIZE=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
     ui_print "- Resizing $IMG to ${SIZE}M..."
-    /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
-      || resize2fs $IMG ${SIZE}M >&2
+    $magiskBin imgtool resize $IMG $SIZE >&2 \
+      || $magiskBin --resizeimg $IMG $SIZE >&2 \
+        || resize2fs $IMG ${SIZE}M >&2
   fi
 else
   SIZE=$((reqSizeM / 32 * 32 + 64));
   ui_print "- Creating $IMG with size ${SIZE}M"
-  /data/adb/magisk/magisk --createimg $IMG $SIZE >&2 \
-    || make_ext4fs -l ${SIZE}M $IMG >&2
+  $magiskBin imgtool create $IMG $SIZE >&2 \
+    || $magiskBin --createimg $IMG $SIZE >&2 \
+      || make_ext4fs -l ${SIZE}M $IMG >&2
 fi
 
 mount_image $IMG $mountPath
@@ -206,18 +181,95 @@ mount_image $IMG $mountPath
 # module-specific code
 ##########################################################################################
 
+Patched=false
+postFsD="$(echo $modPath | sed "s/$modId//").core/post-fs-data.d"
+
 # create module paths
 rm -rf $tmpModPath 2>/dev/null
 mkdir -p $tmpModPath
 
 # extract module files
 ui_print "- Extracting module files"
-unzip -o "$ZIP" -d $INSTALLER >&2
-cd $INSTALLER
-mv common/* $tmpModPath/
+unzip -o "$ZIP" ${modId}.sh -d "$postFsD" >&2
+set_perm "$postFsD/${modId}.sh" 0 0 755
 
-# auto-mount folders
-touch $tmpModPath/auto_mount
+set -u # exit on unset or null variable/parameter
+
+# find system mirror or mount point
+set +u
+if $bootMode; then
+  # find /system mirror
+  System="$(dirname "$(find /sbin/.core/mirror/system \
+    /dev/magisk/mirror/system -type f \
+    -name build.prop 2>/dev/null | head -n1)")"
+  [ -f "$System/build.prop" ] \
+    || { echo -e "(!) /system mirror not found\nls: $(ls $System)"; exit 1; }
+else
+  System="$(dirname "$(find /system -type f \
+    -name build.prop 2>/dev/null | head -n1)")"
+  [ -f "$System/build.prop" ] \
+    || { echo -e "(!)system mount point not found\nls: $(ls $System)"; exit 1; }
+fi
+set -u
+  
+# determine simple mount's path
+[ "$(/data/adb/magisk/magisk -V 2>/dev/null)" -gt "1641" ] \
+  && simpleMount=/data/adb/magisk_simple \
+  || { simpleMount=/cache/magisk_mount \
+    && mount -o remount,rw /cache; }
+
+sysconfigPath=$simpleMount/system/etc/sysconfig
+rmList=$sysconfigPath/spRmList
+
+# sysconfig file patcher
+patchf() {
+  set +u
+  for f in $1/*; do
+    (if grep -q '\<allow.in.*.save' "$f"; then
+      sed -i '/<allow.in.*.save/s/<a/<!-- a/' "$f" # patch
+      for i in ims teleph downl qualc sony shell; do # whitelist these
+        sed -i "/<!-- allow.in.*.save.*$i/s/<!-- a/<a/" "$f"
+      done
+      chcon 'u:object_r:system_file:s0' "$f"
+    fi) &
+  done
+  wait # for background jobs to finish
+  set -u
+}
+
+# patch sysconfig/*
+if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" != "$(du -s $System | awk '{print $1}')" ] \
+  || [ ! -d "$sysconfigPath" ]
+then
+  mkdir -p $rmList 2>/dev/null \
+    && chcon -R 'u:object_r:system_file:s0' $simpleMount
+  for f in $System/etc/sysconfig/*; do
+    if grep -q '\<allow.in.*.save' "$f"; then
+      [ -f "$sysconfigPath/$(basename "$f")" ] \
+        && { rm "$sysconfigPath/$(basename "$f")" || :; } \
+        || touch "$rmList/$(basename "$f")"
+        # save a list of files to be removed after $modId is disabled/uninstalled
+      cp -f "$f" $sysconfigPath/
+    fi
+  done
+  touch "$rmList/DO_NOT_REMOVE" 2>/dev/null
+  patchf $sysconfigPath
+  Patched=true
+  # export /system size for automatic re-patching across ROM/GApps updates
+  du -s $System | awk '{print $1}' >$tmpModPath/.systemSizeK
+fi
+
+# detect & re-patch MagicGApps sysconfig/* if necessary
+mgaDir="$(echo $modPath | sed "s/$modId/MagicGApps/")"
+if [ -d "$mgaDir" ] && ! $Patched; then
+  if [ "$(cat $modPath/.magicGAppsSizeK 2>/dev/null)" != "$(du -s $mgaDir | awk '{print $1}')" ]; then
+    patchf $sysconfigPath
+    # export MagicGApps size for automatic re-patching across ROM/GApps updates
+    du -s $mgaDir | awk '{print $1}' >$tmpModPath/.magicGAppsSizeK
+  fi
+fi
+
+set +u
 
 ##########################################################################################
 
@@ -229,9 +281,6 @@ if $bootMode; then
   touch $modPath/update
   cp $INSTALLER/module.prop $modPath/
 fi
-
-ui_print "- Setting permissions"
-set_permissions
 
 $bootMode || ui_print "- Unmounting partitions"
 umount $mountPath
@@ -259,14 +308,18 @@ ui_print " "
 # module-specific code
 ##########################################################################################
 
-ui_print "  WHAT'S NEW"
-ui_print "    Fixed \"sysMirror not found\" on A/B partition devices (i.e., Pixel family)"
-ui_print "    General optimizations"
+ui_print "  Facebook Support Page: https://facebook.com/VR25-at-xda-developers-258150974794782/"
 ui_print " "
 
-grep -q '16\.7' /data/adb/magisk/util_functions.sh 2>/dev/null \
-  && ui_print "  *Note*: a Magisk 16.7 bug causes $modID to generate empty logs (\"set -x\" doesn't work properly)" \
-  && ui_print " "
+ui_print "  WHAT'S NEW"
+ui_print "    Full redesign"
+ui_print "    Release note: support for official Magisk beta builds is back."
+ui_print "    "
+
+if grep -q '16\.7' /data/adb/magisk/util_functions.sh 2>/dev/null; then
+  ui_print "  *Note*: a Magisk 16.7 bug causes $modId to generate empty verbose logs (\"set -x\" doesn't work)"
+  ui_print " "
+fi
 
 ##########################################################################################
 
