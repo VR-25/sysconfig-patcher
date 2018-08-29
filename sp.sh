@@ -11,22 +11,27 @@ set -u # exit on unset or null variable/parameter
 modId=sp
 Patched=false
 
-modPath=/sbin/.core/img/$modId
-[ -f $modPath/module.prop ] || modPath=/magisk/$modId
+modPath=$(sed -n 's/^.*MOUNTPATH=//p' \
+  /data/adb/magisk/util_functions.sh | head -n1)/$modId
 
 newLog=$modPath/${modId}.log
 oldLog=$modPath/${modId}_old.log
+sysconfigPath0=$modPath/system/etc/sysconfig
 
 
 # verbose generator
-[ -f "$newLog" ] && mv $newLog $oldLog
-[ -f $modPath/module.prop -a ! -f $modPath/disable ] && set -x 2>>$newLog
+[ -f "$newLog" ] && mv "$newLog" "$oldLog"
+if [ -f $modPath/module.prop -a ! -f $modPath/disable ]; then
+  exec &>>"$newLog"
+  set -x
+fi
 
 
 # find /system mirror
-sysMirror="$(dirname "$(find /sbin/.core/mirror/system \
+sysMirror=$(dirname $(find /sbin/.core/mirror/system \
   /dev/magisk/mirror/system -type f \
-  -name build.prop 2>/dev/null | head -n1)")"
+  -name build.prop 2>/dev/null | head -n1) 2>/dev/null)
+
 [ -f "$sysMirror/build.prop" ] \
   || { echo -e "(!) /system mirror not found\nls: $(ls $sysMirror)"; exit 1; }
 
@@ -34,8 +39,7 @@ sysMirror="$(dirname "$(find /sbin/.core/mirror/system \
 # determine simple mount's path
 [ "$(/data/adb/magisk/magisk -V 2>/dev/null)" -gt "1641" ] \
   && simpleMount=/data/adb/magisk_simple \
-  || { simpleMount=/cache/magisk_mount \
-    && mount -o remount,rw /cache; }
+  || { simpleMount=/cache/magisk_mount; mount -o remount,rw /cache; }
 
 sysconfigPath=$simpleMount/system/etc/sysconfig
 rmList=$sysconfigPath/spRmList
@@ -89,22 +93,24 @@ fi
 
 
 # patch sysconfig/*
-if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" != "$(du -s $sysMirror | awk '{print $1}')" ] \
-  || [ ! -d "$sysconfigPath" ]
+if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" \
+  != "$(du -s $sysMirror | awk '{print $1}')" ] \
+  || [ ! -d "$sysconfigPath" -o ! -d "$sysconfigPath0" ]
 then
-  mkdir -p $rmList 2>/dev/null \
+  mkdir -p $rmList $sysconfigPath0 2>/dev/null \
     && chcon -R 'u:object_r:system_file:s0' $simpleMount
   for f in $sysMirror/etc/sysconfig/*; do
     if grep -q '\<allow.in.*.save' "$f"; then
       [ -f "$sysconfigPath/$(basename "$f")" ] \
         && { rm "$sysconfigPath/$(basename "$f")" || :; } \
         || touch "$rmList/$(basename "$f")"
-        # save a list of files to be removed after $modId is disabled/uninstalled
+        # save a list of files to be deleted after $modId is disabled/removed
       cp -f "$f" $sysconfigPath/
     fi
   done
   touch "$rmList/DO_NOT_REMOVE"
   patchf $sysconfigPath
+  cp -f $sysconfigPath/* $sysconfigPath0/ 2>/dev/null
   Patched=true
   # export /system size for automatic re-patching across ROM/GApps updates
   du -s $sysMirror | awk '{print $1}' >$modPath/.systemSizeK
@@ -114,8 +120,11 @@ fi
 # detect & re-patch MagicGApps sysconfig/* if necessary
 mgaDir="$(echo $modPath | sed "s/$modId/MagicGApps/")"
 if [ -d "$mgaDir" ] && ! $Patched; then
-  if [ "$(cat $modPath/.magicGAppsSizeK 2>/dev/null)" != "$(du -s $mgaDir | awk '{print $1}')" ]; then
+  if [ "$(cat $modPath/.magicGAppsSizeK 2>/dev/null)" \
+    != "$(du -s $mgaDir | awk '{print $1}')" ]
+  then
     patchf $sysconfigPath
+    cp -f $sysconfigPath/* $sysconfigPath0/ 2>/dev/null
     # export MagicGApps size for automatic re-patching across ROM/GApps updates
     du -s $mgaDir | awk '{print $1}' >$modPath/.magicGAppsSizeK
   fi

@@ -1,326 +1,156 @@
-#!/sbin/sh -x
-# Sysconfig Patcher (sp) Installer
-# Copyright (C) 2017-2018, VR25 @ xda-developers
-# License: GPL v3+
+#!/sbin/sh
+##########################################################################################
+#
+# Magisk Module Template Install Script
+# by topjohnwu
+#
+##########################################################################################
 
-# detect whether in bootmode
-getprop | grep zygote | grep -q running && bootMode=true || bootMode=false
-
-# default perms (d=rwx-rw-rw, f=rw-r-r)
-umask 022
-
-ui_print() {
-  $bootMode && echo -e "$1" || echo -e "ui_print $1\nui_print" >> /proc/self/fd/$OUTFD
-}
-
-grep_prop() {
-  REGEX="s/^$1=//p"
-  shift
-  FILES=$@
-  [ -z "$FILES" ] && FILES='/system/build.prop'
-  sed -n "$REGEX" $FILES 2>/dev/null | head -n 1
-}
-
-is_mounted() { mountpoint -q "$1" 2>/dev/null; }
-
-mount_image() {
-  ui_print "- Mounting $1 to $2"
-  [ -d "$2" ] || mkdir -p "$2"
-  if ! is_mounted $2; then
-    for n in 0 1 2 3 4 5 6 7; do
-      if (! is_mounted $2); then
-        loopDevice=/dev/block/loop$n
-        [ -b "$loopDevice" ] || mknod $loopDevice b 7 $n 2>/dev/null
-        losetup $loopDevice $1
-        [ "$?" -eq "0" ] && mount -t ext4 -o loop $loopDevice $2
-        is_mounted $2 && break
-      fi
-    done
-  fi
-  if ! is_mounted $2; then
-    ui_print " "
-    ui_print "(!) Failed to mount $IMG"
-    ui_print " "
-    exit 1
-  fi
-}
-
-set_perm() {
-  chown $2:$3 "$1" || exit 1
-  chmod $4 "$1" || exit 1
-  [ -z "$5" ] && chcon 'u:object_r:system_file:s0' "$1" || chcon $5 "$1"
-}
-
-set_perm_recursive() {
-  find "$1" -type d 2>/dev/null | while read dir; do
-  set_perm "$dir" $2 $3 $4 $6
-  done
-  find "$1" -type f -o -type l 2>/dev/null | while read file; do
-  set_perm "$file" $2 $3 $5 $6
-  done
-}
-
-request_size_check() {
-  reqSizeM=`du -s $1 | cut -f1`
-  reqSizeM=$((reqSizeM / 1024 + 1))
-}
-
-request_zip_size_check() {
-  reqSizeM=`unzip -l "$1" | tail -n 1 | awk '{ print int($1 / 1048567 + 1) }'`
-}
-
-image_size_check() {
-  e2fsck -yf $1 >&2
-  curBlocks=`e2fsck -n $1 2>/dev/null | grep $1 | cut -d, -f3 | cut -d\  -f2`;
-  curUsedM=`echo "$curBlocks" | cut -d/ -f1`
-  curSizeM=`echo "$curBlocks" | cut -d/ -f1`
-  curFreeM=$(((curSizeM - curUsedM) * 4 / 1024))
-  curUsedM=$((curUsedM * 4 / 1024 + 1))
-  curSizeM=$((curSizeM * 4 / 1024))
-}
-
-mod_info() {
-  grep_prop "$1" $INSTALLER/module.prop
-}
-
-print_modname() {
-  ui_print " "
-  ui_print "$(mod_info name) ($(mod_info id)) $(mod_info version)"
-  ui_print "$(mod_info author)"
-  ui_print "Powered by Magisk (@topjohnwu)"
-  ui_print " "
-}
-
-OUTFD=$2
-ZIP="$3"
-
-readlink /proc/$$/fd/$OUTFD 2>/dev/null | grep /tmp >/dev/null
-if [ "$?" -eq "0" ]; then
-  OUTFD=0
-  for FD in `ls /proc/$$/fd`; do
-    readlink /proc/$$/fd/$FD 2>/dev/null | grep pipe >/dev/null
-    if [ "$?" -eq "0" ]; then
-      ps | grep " 3 $FD " | grep -v grep >/dev/null
-      if [ "$?" -eq "0" ]; then
-        OUTFD=$FD
-        break
-      fi
-    fi
-  done
-fi
+# Detect whether in boot mode
+ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true || BOOTMODE=false
+$BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true
 
 TMPDIR=/dev/tmp
 INSTALLER=$TMPDIR/install
-mountPath=$TMPDIR/magisk_img
-magiskBin=/data/adb/magisk/magisk
-$bootMode && imgName=magisk_merge.img || imgName=magisk.img
-[ -d /data/adb/magisk ] && IMG=/data/adb/$imgName || IMG=/data/$imgName
+MAGISKBIN=/data/adb/magisk
 
-if [ ! -d /data/adb/magisk ] && [ ! -d /data/magisk ]; then
-  ui_print " "
-  ui_print "(!) No Magisk installation found or installed version is not supported"
-  ui_print " "
-  exit 1
-fi
+# Default permissions
+umask 022
 
-# initial cleanup
+# Initial cleanup
 rm -rf $TMPDIR 2>/dev/null
-mkdir -p $INSTALLER 2>/dev/null
+mkdir -p $INSTALLER
 
-unzip -o "$ZIP" module.prop -d $INSTALLER >&2
+# echo before loading util_functions
+ui_print() { echo "$1"; }
 
-modId="`grep_prop id $INSTALLER/module.prop`"
-tmpModPath=$mountPath/$modId
-modPath=$tmpModPath
+require_new_magisk() {
+  ui_print "*******************************"
+  ui_print " Please install Magisk v15.0+! "
+  ui_print "*******************************"
+  exit 1
+}
 
-# find modPath
-if $bootMode; then
-  for mountPoint in /sbin/.core/img /magisk; do
-    if [ -d "$mountPoint/.core" ] || [ -d "$mountPoint/lost+found" ]; then
-      mountPoint=$mountPoint
-      modPath=$mountPoint/$modId
-      break
-    fi
-  done
-  is_mounted $mountPoint && mkdir -p $modPath 2>/dev/null \
-    || { echo -e "\n(!) $IMG mount point not found\n"; exit 1; }
-fi
+##########################################################################################
+# Environment
+##########################################################################################
+
+OUTFD=$2
+ZIP="$3" ###
+
+mount /data 2>/dev/null
+
+# Utility functions must exist
+[ -f $MAGISKBIN/util_functions.sh ] || require_new_magisk
+# Load utility fuctions
+. $MAGISKBIN/util_functions.sh
+
+# We can't alter magisk image live, use alternative image if required
+$BOOTMODE && IMG=/data/adb/magisk_merge.img
+# Always mount under tmp
+MOUNTPATH=$TMPDIR/magisk_img
+
+# Preperation for flashable zips
+get_outfd
+
+# Mount partitions
+mount_partitions
+
+# Detect version and architecture
+api_level_arch_detect
+
+# You can get the Android API version from $API, the CPU architecture from $ARCH
+# Useful if you are creating Android version / platform dependent mods
+
+# Setup busybox and binaries
+$BOOTMODE && boot_actions || recovery_actions
+
+##########################################################################################
+# Preparation
+##########################################################################################
+
+# Extract common files
+unzip -o "$ZIP" module.prop config.sh 'common/*' -d $INSTALLER >&2
+
+[ ! -f $INSTALLER/config.sh ] && abort "! Unable to extract zip file!"
+# Load configurations
+. $INSTALLER/config.sh
+
+# Check the installed magisk version
+MIN_VER=`grep_prop minMagisk $INSTALLER/module.prop`
+[ ! -z $MAGISK_VER_CODE -a $MAGISK_VER_CODE -ge $MIN_VER ] || require_new_magisk
+MODID=`grep_prop id $INSTALLER/module.prop`
+MODPATH=$MOUNTPATH/$MODID
 
 # Print mod name
 print_modname
 
-$bootMode || ui_print "- Mounting partitions"
-{ mount -o ro /system
-mount -o ro /vendor
-mount /data
-mount /cache; } 2>/dev/null
+# Please leave this message in your flashable zip for credits :)
+ui_print "******************************"
+ui_print "Powered by Magisk (@topjohnwu)"
+ui_print "******************************"
 
+##########################################################################################
+# Install
+##########################################################################################
+
+# Get the variable reqSizeM. Use your own method to determine reqSizeM if needed
 request_zip_size_check "$ZIP"
 
-if [ -f "$IMG" ]; then
-  ui_print "- $IMG detected!"
-  image_size_check $IMG
-  if [ "$reqSizeM" -gt "$curFreeM" ]; then
-    SIZE=$(((reqSizeM + curUsedM) / 32 * 32 + 64))
-    ui_print "- Resizing $IMG to ${SIZE}M..."
-    $magiskBin imgtool resize $IMG $SIZE >&2 \
-      || $magiskBin --resizeimg $IMG $SIZE >&2 \
-        || resize2fs $IMG ${SIZE}M >&2
-  fi
-else
-  SIZE=$((reqSizeM / 32 * 32 + 64));
-  ui_print "- Creating $IMG with size ${SIZE}M"
-  $magiskBin imgtool create $IMG $SIZE >&2 \
-    || $magiskBin --createimg $IMG $SIZE >&2 \
-      || make_ext4fs -l ${SIZE}M $IMG >&2
+# This function will mount $IMG to $MOUNTPATH, and resize the image based on $reqSizeM
+mount_magisk_img
+
+install_module ###
+
+# Create mod paths
+#rm -rf $MODPATH 2>/dev/null
+#mkdir -p $MODPATH
+
+# Extract files to system. Use your own method if needed
+#ui_print "- Extracting module files"
+#unzip -o "$ZIP" 'system/*' -d $MODPATH >&2
+
+# Remove placeholder
+#rm -f $MODPATH/system/placeholder 2>/dev/null
+
+# Handle replace folders
+for TARGET in $REPLACE; do
+  mktouch $MODPATH$TARGET/.replace
+done
+
+# Auto Mount
+$AUTOMOUNT && touch $MODPATH/auto_mount
+
+# prop files
+$PROPFILE && cp -af $INSTALLER/common/system.prop $MODPATH/system.prop
+
+# Module info
+cp -af $INSTALLER/module.prop $MODPATH/module.prop
+if $BOOTMODE; then
+  # Update info for Magisk Manager
+  mktouch /sbin/.core/img/$MODID/update
+  cp -af $INSTALLER/module.prop /sbin/.core/img/$MODID/module.prop
 fi
 
-mount_image $IMG $mountPath
+# post-fs-data mode scripts
+$POSTFSDATA && cp -af $INSTALLER/common/post-fs-data.sh $MODPATH/post-fs-data.sh
+
+# service mode scripts
+$LATESTARTSERVICE && cp -af $INSTALLER/common/service.sh $MODPATH/service.sh
+
+ui_print "- Setting permissions"
+set_permissions
 
 ##########################################################################################
-# module-specific code
+# Finalizing
 ##########################################################################################
 
-Patched=false
-postFsD="$(echo $modPath | sed "s/$modId//").core/post-fs-data.d"
+# Unmount magisk image and shrink if possible
+unmount_magisk_img
 
-# create module paths
-rm -rf $tmpModPath 2>/dev/null
-mkdir -p $tmpModPath
+$BOOTMODE || recovery_cleanup
+rm -rf $TMPDIR
 
-# extract module files
-ui_print "- Extracting module files"
-unzip -o "$ZIP" ${modId}.sh -d "$postFsD" >&2
-set_perm "$postFsD/${modId}.sh" 0 0 755
-
-set -u # exit on unset or null variable/parameter
-
-# find system mirror or mount point
-set +u
-if $bootMode; then
-  # find /system mirror
-  System="$(dirname "$(find /sbin/.core/mirror/system \
-    /dev/magisk/mirror/system -type f \
-    -name build.prop 2>/dev/null | head -n1)")"
-  [ -f "$System/build.prop" ] \
-    || { echo -e "(!) /system mirror not found\nls: $(ls $System)"; exit 1; }
-else
-  System="$(dirname "$(find /system -type f \
-    -name build.prop 2>/dev/null | head -n1)")"
-  [ -f "$System/build.prop" ] \
-    || { echo -e "(!)system mount point not found\nls: $(ls $System)"; exit 1; }
-fi
-set -u
-  
-# determine simple mount's path
-[ "$(/data/adb/magisk/magisk -V 2>/dev/null)" -gt "1641" ] \
-  && simpleMount=/data/adb/magisk_simple \
-  || { simpleMount=/cache/magisk_mount \
-    && mount -o remount,rw /cache; }
-
-sysconfigPath=$simpleMount/system/etc/sysconfig
-rmList=$sysconfigPath/spRmList
-
-# sysconfig file patcher
-patchf() {
-  set +u
-  for f in $1/*; do
-    (if grep -q '\<allow.in.*.save' "$f"; then
-      sed -i '/<allow.in.*.save/s/<a/<!-- a/' "$f" # patch
-      for i in ims teleph downl qualc sony shell; do # whitelist these
-        sed -i "/<!-- allow.in.*.save.*$i/s/<!-- a/<a/" "$f"
-      done
-      chcon 'u:object_r:system_file:s0' "$f"
-    fi) &
-  done
-  wait # for background jobs to finish
-  set -u
-}
-
-# patch sysconfig/*
-if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" != "$(du -s $System | awk '{print $1}')" ] \
-  || [ ! -d "$sysconfigPath" ]
-then
-  mkdir -p $rmList 2>/dev/null \
-    && chcon -R 'u:object_r:system_file:s0' $simpleMount
-  for f in $System/etc/sysconfig/*; do
-    if grep -q '\<allow.in.*.save' "$f"; then
-      [ -f "$sysconfigPath/$(basename "$f")" ] \
-        && { rm "$sysconfigPath/$(basename "$f")" || :; } \
-        || touch "$rmList/$(basename "$f")"
-        # save a list of files to be removed after $modId is disabled/uninstalled
-      cp -f "$f" $sysconfigPath/
-    fi
-  done
-  touch "$rmList/DO_NOT_REMOVE" 2>/dev/null
-  patchf $sysconfigPath
-  Patched=true
-  # export /system size for automatic re-patching across ROM/GApps updates
-  du -s $System | awk '{print $1}' >$tmpModPath/.systemSizeK
-fi
-
-# detect & re-patch MagicGApps sysconfig/* if necessary
-mgaDir="$(echo $modPath | sed "s/$modId/MagicGApps/")"
-if [ -d "$mgaDir" ] && ! $Patched; then
-  if [ "$(cat $modPath/.magicGAppsSizeK 2>/dev/null)" != "$(du -s $mgaDir | awk '{print $1}')" ]; then
-    patchf $sysconfigPath
-    # export MagicGApps size for automatic re-patching across ROM/GApps updates
-    du -s $mgaDir | awk '{print $1}' >$tmpModPath/.magicGAppsSizeK
-  fi
-fi
-
-set +u
-
-##########################################################################################
-
-# module info
-cp $INSTALLER/module.prop $tmpModPath/
-
-# update info for Magisk Manager
-if $bootMode; then
-  touch $modPath/update
-  cp $INSTALLER/module.prop $modPath/
-fi
-
-$bootMode || ui_print "- Unmounting partitions"
-umount $mountPath
-losetup -d $loopDevice
-rmdir $mountPath
-
-# shrink the image if possible
-image_size_check $IMG
-NEWDATASIZE=$((curUsedM / 32 * 32 + 32))
-if [ "$curSizeM" -gt "$NEWDATASIZE" ]; then
-  ui_print "- Shrinking $IMG to ${NEWDATASIZE}M..."
-  /data/adb/magisk/magisk --resizeimg $IMG $SIZE >&2 \
-    || resize2fs $IMG ${SIZE}M >&2
-fi
-
-if ! $bootMode; then
-  umount /system
-  umount /vendor 2>/dev/null
-fi
-
-ui_print "- End"
-ui_print " "
-
-##########################################################################################
-# module-specific code
-##########################################################################################
-
-ui_print "  Facebook Support Page: https://facebook.com/VR25-at-xda-developers-258150974794782/"
-ui_print " "
-
-ui_print "  WHAT'S NEW"
-ui_print "    Full redesign"
-ui_print "    Release note: support for official Magisk beta builds is back."
-ui_print "    "
-
-if grep -q '16\.7' /data/adb/magisk/util_functions.sh 2>/dev/null; then
-  ui_print "  *Note*: a Magisk 16.7 bug causes $modId to generate empty verbose logs (\"set -x\" doesn't work)"
-  ui_print " "
-fi
-
-##########################################################################################
-
+ui_print "- Done"
+version_info ###
 exit 0
