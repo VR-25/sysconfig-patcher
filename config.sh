@@ -28,7 +28,7 @@ AUTOMOUNT=true
 PROPFILE=false
 
 # Set to true if you need post-fs-data script
-POSTFSDATA=false
+POSTFSDATA=true
 
 # Set to true if you need late_start service script
 LATESTARTSERVICE=false
@@ -40,7 +40,6 @@ LATESTARTSERVICE=false
 # Set what you want to show when installing your mod
 
 print_modname() {
-  i() { grep_prop $1 $INSTALLER/module.prop; }
   ui_print " "
   ui_print "$(i name) $(i version)"
   ui_print "$(i author)"
@@ -89,8 +88,10 @@ set_permissions() {
   set_perm_recursive  $MODPATH  0  0  0755  0644
 
   # Permissions for executables
-  for f in $MODPATH/bin/* $MODPATH/system/bin/* $MODPATH/system/xbin/*; do
-    [ -f "$f" ] && set_perm $f  0  0  0755
+  for f in $MODPATH/bin/* $MODPATH/system/bin/* \
+    $MODPATH/system/xbin/* $MODPATH/*.sh
+  do
+    [ -f "$f" ] && set_perm $f 0 0 0755
   done
 }
 
@@ -107,133 +108,148 @@ set_permissions() {
 
 install_module() {
 
-  set -ux
+  # shell behavior
+  set -euxo pipefail
+  trap debug_exit EXIT
 
-  Patched=false
-  sysconfigPath0=$MODPATH/system/etc/sysconfig
+  local f=""
+  local system=""
+  local utilF=$MAGISKBIN/util_functions.sh
+  local sysconfigDir=$MODPATH/system/etc/sysconfig
+  local sysconfigDir2=/data/adb/magisk_simple/system/etc/sysconfig
 
-  $BOOTMODE && MOUNTPATH0=$(sed -n 's/^.*MOUNTPATH=//p' \
-    /data/adb/magisk/util_functions.sh | head -n1) \
-      || MOUNTPATH0=$MOUNTPATH
+  $BOOTMODE && local MOUNTPATH0=$(sed -n 's/^.*MOUNTPATH=//p' $utilF | head -n 1) \
+    || local MOUNTPATH0=$MOUNTPATH
 
-  postFsD=$MOUNTPATH0/.core/post-fs-data.d
-
-  curVer=$(grep_prop versionCode $MOUNTPATH0/$MODID/module.prop)
-  set +u
-  [ -z "$curVer" ] && curVer=0
-  set -u
+  # remove legacy version
+  [ -d $MOUNTPATH0/sp ] && { $BOOTMODE && touch $MOUNTPATH0/sp/remove \
+    || rm -rf $MOUNTPATH/sp; }
 
   # create module paths
-  { rm -rf $MODPATH
-  mkdir -p $sysconfigPath0 "$postFsD"; } 2>/dev/null
+  rm -rf $MODPATH 2>/dev/null || true
+  mkdir -p $sysconfigDir
 
-  # extract module files
-  ui_print "- Extracting module files"
-  unzip -o "$ZIP" ${MODID}.sh -d "$postFsD" >&2
-  set +u
-  set_perm "$postFsD/${MODID}.sh" 0 0 755
-
-  # find system mirror or mount point
   if $BOOTMODE; then
     # find /system mirror
-    System=$(dirname $(find /sbin/.core/mirror/system \
-      /dev/magisk/mirror/system -type f \
-      -name build.prop 2>/dev/null | head -n1) 2>/dev/null)
-    [ -f $System/build.prop ] \
-      || { echo -e "(!) /system mirror not found\nls: $(ls $System)"; exit 1; }
-  else
-    System=/system
-  fi
-  set -u
-
-  # determine simple mount's path
-  [ "$(/data/adb/magisk/magisk -V 2>/dev/null)" -gt "1641" ] \
-    && simpleMount=/data/adb/magisk_simple \
-    || { simpleMount=/cache/magisk_mount; mount -o remount,rw /cache; }
-
-  sysconfigPath=$simpleMount/system/etc/sysconfig
-  rmList=$sysconfigPath/spRmList
-
-  # sysconfig file patcher
-  patchf() {
-    set +u
-    for f in $1/*; do
-      (if grep -q '\<allow.in.*.save' "$f"; then
-        ui_print "  - $(basename $f)"
-        sed -i '/<allow.in.*.save/s/<a/<!-- a/' "$f" # patch
-        for i in ims teleph downl qualc sony shell; do # whitelist these
-          sed -i "/<!-- allow.in.*.save.*$i/s/<!-- a/<a/" "$f"
-        done
-        chcon 'u:object_r:system_file:s0' "$f"
-      fi) &
-    done
-    wait # for background jobs to finish
-    set -u
-  }
-
-  # patch sysconfig/*
-  if [ "$(cat $modPath/.systemSizeK 2>/dev/null)" \
-    != "$(du -s $System | awk '{print $1}')" ] \
-    || [ ! -d "$sysconfigPath" -o ! -d "$sysconfigPath0" ]
-  then
-    mkdir -p $rmList 2>/dev/null \
-      && chcon -R 'u:object_r:system_file:s0' $simpleMount
-    for f in $System/etc/sysconfig/*; do
-      if grep -q '\<allow.in.*.save' "$f"; then
-        [ -f "$sysconfigPath/$(basename "$f")" ] \
-          && { rm "$sysconfigPath/$(basename "$f")" || :; } \
-          || touch "$rmList/$(basename "$f")"
-          # save a list of files to be deleted after $MODID is disabled/removed
-        cp -f "$f" $sysconfigPath/
-      fi
-    done
-    touch "$rmList/DO_NOT_REMOVE" 2>/dev/null
-    ui_print "- Patching"
-    patchf $sysconfigPath
-    cp -f $sysconfigPath/* $sysconfigPath0/ 2>/dev/null
-    Patched=true
-    # export /system size for automatic re-patching across ROM/GApps updates
-    du -s $System | awk '{print $1}' >$MODPATH/.systemSizeK
-  fi
-
-  # detect & re-patch MagicGApps sysconfig/* if necessary
-  mgaDir="$(echo $modPath | sed "s/$MODID/MagicGApps/")"
-  if [ -d "$mgaDir" ] && ! $Patched; then
-    if [ "$(cat $modPath/.magicGAppsSizeK 2>/dev/null)" \
-      != "$(du -s $mgaDir | awk '{print $1}')" ]
-    then
-      ui_print "- Patching"
-      patchf $sysconfigPath
-      cp -f $sysconfigPath/* $sysconfigPath0/ 2>/dev/null
-      # export MagicGApps size for automatic re-patching across ROM/GApps updates
-      du -s $mgaDir | awk '{print $1}' >$MODPATH/.magicGAppsSizeK
+    set +e
+    system=$(dirname $(find /sbin/.core/mirror/system \
+      -type f -name build.prop -maxdepth 2 2>/dev/null | head -n 1))
+    set -e
+    if [ ! -f $system/build.prop ]; then
+      ui_print " "
+      ui_print "(!) /system mirror not found!"
+      ui_print "- Try installing from TWRP."
+      echo -e "\nls $system: $(ls $system)\n" >&2
+      exit 1
     fi
+  else
+    system=/system
   fi
 
+  ui_print "- Patching"
+
+  # sysconfig/
+  for f in $system/etc/sysconfig/*; do
+    [ -f "$f" ] && grep -q '\<allow.in.*.save' $f \
+      && cp -f $f $sysconfigDir/
+  done
+  # export /system size for automatic re-patching across ROM/GApps updates
+  du -s $system | awk '{print $1}' >$MODPATH/.systemSizeK
+
+  # MagicGApps' sysconfig/
+  if [ -d $MOUNTPATH0/MagicGApps ] \
+    && [ $(grep_prop versionCode $MOUNTPATH0/MagicGApps/module.prop) -gt 201809230 ]
+  then
+    cp -f $sysconfigDir2/* $sysconfigDir/
+    # export ro.addon.open_version for automatic re-patching across systemless GApps updates
+    sed -n 's/.*open_version=//p' ${sysconfigDir2%/*}/g.prop >$MODPATH/.MagicGApps
+  fi
+
+  patch_ $sysconfigDir
+  set +euxo pipefail
+}
+
+
+debug_exit() {
+  local e=$?
+  echo -e "\n***EXIT $e***\n"
+  set +euxo pipefail
+  set
+  echo
+  echo "SELinux status: $(getenforce 2>/dev/null || sestatus 2>/dev/null)" \
+    | sed 's/En/en/;s/Pe/pe/'
+  if [ $e -ne 0 ]; then
+    unmount_magisk_img
+    $BOOTMODE || recovery_cleanup
+    set -u
+    rm -rf $TMPDIR
+  fi 1>/dev/null 2>&1
+  exit $e
+} 1>&2
+
+
+patch_() {
+  local f=""
   set +u
+  for f in $1/*; do
+    (f=$f
+    if grep -q '\<allow.in.*.save' $f; then
+      ui_print "  - ${f##*/}"
+      sed -i '/<allow.in.*.save/s/<a/<!-- a/' $f # patch
+      for i in ims teleph downl qualc sony shell; do # white-list these
+        sed -i "/<!-- allow.in.*.save.*$i/s/<!-- a/<a/" $f
+      done
+    fi) &
+  done
+  wait # for background jobs to finish
+  set -u
+}
+
+
+# module.prop reader
+i() {
+  local p=$INSTALLER/module.prop
+  [ -f $p ] || p=$MODPATH/module.prop
+  grep_prop $1 $p
 }
 
 
 version_info() {
 
-  set -u
+  local c="" whatsNew="- Major optimizations
+- Magisk 15.0-17.2 support
+- Module ID reverted to <sysconfig-patcher>
+- Module template 17000, with extras
+- Rebooting twice to apply changes after disabling/re-enabling the module is no longer necessary.
+- Support for MagicGApps versions greater than <2018.9.23>
+- Updated building and debugging tools
+- Updated documentation
+---
+* Release notes
+  - If you have </data/adb/magisk_simple/system/etc/sysconfig/>, remove it with TWRP file manager.
+  - Oreo and Pie users (or even users in general) may need to disable Google device administrators for things to work as expected. This rather inconvenient requirement has nothing to do with Sysconfig Patcher. It's a Google thing."
+
+  set -euxo pipefail
 
   ui_print " "
-  ui_print "  Facebook Support Page: https://facebook.com/VR25-at-xda-developers-258150974794782/"
-  ui_print " "
-
-  whatsNew="- Improved compatibility
-- Magisk Module Template 1500
-- Updated documentation"
-
   ui_print "  WHAT'S NEW"
   echo "$whatsNew" | \
     while read c; do
-      ui_print "  $c"
+      ui_print "    $c"
     done
-  ui_print "    "
+  ui_print " "
 
-  grep -q '16\.7' $MAGISKBIN/util_functions.sh \
-    && ui_print "  *Note*: a Magisk 16.7 bug causes $MODID to generate empty verbose logs (\"set -x\" doesn't work properly)" \
-    && ui_print " "
+  # a note on untested Magisk versions
+  if [ ${MAGISK_VER/.} -gt 172 ]; then
+    ui_print " "
+    ui_print "(i) This Magisk version hasn't been tested by @VR25!"
+    ui_print "- If you come across any issue, please report."
+    ui_print " "
+  fi
+
+  ui_print "  LINKS"
+  ui_print "    - Facebook Page: facebook.com/VR25-at-xda-developers-258150974794782/"
+  ui_print "    - Git Repository: github.com/Magisk-Modules-Repo/sysconfig-patcher/"
+  ui_print "    - XDA Thread: forum.xda-developers.com/apps/magisk/module-sysconfig-patcher-t3668435/"
+  ui_print " "
 }
