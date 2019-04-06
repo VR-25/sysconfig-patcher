@@ -1,2 +1,2 @@
-bash check_syntax
-PAUSE
+bash check_syntax.sh
+pause

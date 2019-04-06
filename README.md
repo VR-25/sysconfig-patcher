@@ -1,57 +1,111 @@
 # Sysconfig Patcher
-## README.md
-### Copyright (C) 2017-2018, VR25 @ xda-developers
-#### License: GPL v3+
 
 
 
 ---
-#### DISCLAIMER
+## LEGAL
 
-This software is provided as is, in the hope that it will be useful, but without any warranty. Always read/reread this reference prior to installing/upgrading. While no cats have been harmed, I assume no responsibility under anything which might go wrong due to the use/misuse of it.
+Copyright (C) 2017-2019, VR25 @ xda-developers
 
-A copy of the GNU General Public License, version 3 or newer ships with every build. Please, read it prior to using, modifying and/or sharing any part of this work.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-To prevent fraud, DO NOT mirror any link associated with this project; DO NOT share ready-to-flash builds (zips) online!
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-
-
----
-#### DESCRIPTION
-
-Systemlessly patches all relevant XML files in `/system/etc/sysconfig/` for data and battery savings & auto-re-patches across ROM/GApps updates. Thus, packages listed in these files (i.e., `Google Play Services`) will no longer have unrestricted access to data & power intensive resources without the user's explicit consent. `Doze` and `data saver` will act upon them. Core packages such as `Qualcomm's`, `Download Manager`, `Shell`, etc., are not affected. `MagicGApps` module, versions greater than 2018.9.23 are also supported.
-
-
-
----
-#### PRE-REQUISITES
-
-- Magisk 15.0-17.2
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
 
 ---
-#### SETUP STEPS
+## DISCLAIMER
 
-1. Remove any/all similar module(s).
-2. Install/upgrade from Magisk Manager or TWRP.
-3. Reboot.
+Always read/reread this reference prior to installing/upgrading this software.
 
-Note: Oreo and Pie users (or even users in general) may need to disable Google device administrators for things to work as expected. This rather inconvenient requirement has nothing to do with Sysconfig Patcher. It's a Google thing.
+While no cats have been harmed, the author assumes no responsibility for anything that might break due to the use/misuse of it.
 
-
-
----
-#### ONLINE SUPPORT
-
-- [Facebook Page](https://facebook.com/VR25-at-xda-developers-258150974794782/)
-- [Git Repository](https://github.com/Magisk-Modules-Repo/sysconfig-patcher/)
-- [XDA Thread](https://forum.xda-developers.com/apps/magisk/module-sysconfig-patcher-t3668435/)
+To prevent fraud, do NOT mirror any link associated with this project; do NOT share builds (zips)! Share official links instead.
 
 
 
 ---
-#### LATEST CHANGES
+## DESCRIPTION
+
+This module patches all relevant XML files from `/system/etc/sysconfig/` for data and battery savings, and auto-repatches these after ROM/GApps updates.
+
+Targeted packages (i.e., `Google Play Services (GMS)`) are deprived of unrestricted access to data and power intensive resources without the user's explicit consent.
+
+`Doze` and `data saver` will act upon these. Core packages such as `Qualcomm's`, `Download Manager`, `Shell`, etc., are excluded by default. 
+
+`MagicGApps` module 2019 is supported.
+
+
+
+---
+## PREREQUISITES
+
+- Magisk 17-19
+
+
+
+---
+## SETUP
+
+
+Install
+
+0. [Optional] Set up /sdcard/.sp_whitelist.txt.
+- Use zipFile/common/whitelist.txt as reference.
+- Do not remove/blacklist default packages, unless you know exactly what you are doing.
+- Reinstall the module to apply new changes.
+
+1. Flash live (e.g., from Magisk Manager) or from custom recovery (e.g., TWRP).
+
+
+Uninstall
+
+- Use Magisk Manager (app) or Magisk Manager for Recovery Mode (utility).
+
+
+
+---
+## USAGE
+
+Generally, once the module is installed, you don't have to do anything else.
+
+If you face issues, go to settings > security and try one or all of the following workarounds (a reboot is implied):
+
+- Disable all Google `Device Administrators`.
+- Disable all Google `Trust Agents`.
+- Disable `Find My Device`.
+
+
+
+---
+## LINKS
+
+- [Donate](https://paypal.me/vr25xda/)
+- [Facebook page](https://facebook.com/VR25-at-xda-developers-258150974794782/)
+- [Git repository](https://github.com/Magisk-Modules-Repo/sysconfig-patcher/)
+- [Telegram channel](https://t.me/vr25_xda/)
+- [Telegram profile](https://t.me/vr25xda/)
+- [XDA thread](https://forum.xda-developers.com/apps/magisk/module-sysconfig-patcher-t3668435/)
+
+
+
+---
+## LATEST CHANGES
+
+**2019.4.6 (201904060)**
+- Complete redesign
+- Custom whitelist (refer to README.md for details)
+- Magisk 17-19 and MagicGApps 2019 support
+- Updated documentation
 
 **2018.10.22 (201810220)**
 - Major optimizations
@@ -68,7 +122,3 @@ Note: Oreo and Pie users (or even users in general) may need to disable Google d
 - Improved compatibility
 - Magisk Module Template 1500
 - Updated documentation
-
-**2018.8.20 (201808200)**
-- Full redesign
-- *Release notes*: "sp" is the new module ID. If this update is not displayed in Magisk Manager, uninstall the current version. Full support for official Magisk beta builds is back.
