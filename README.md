@@ -44,6 +44,8 @@ Targeted packages (i.e., `Google Play Services (GMS)`) are deprived of unrestric
 
 `MagicGApps` module 2019 is supported.
 
+For verbose, refer to `/dev/sysconfig-patcher/post-fs-data.sh.log`.
+
 
 
 ---
@@ -64,7 +66,9 @@ Install
 - Do not remove/blacklist default packages, unless you know exactly what you are doing.
 - Reinstall the module to apply new changes.
 
-1. Flash live (e.g., from Magisk Manager) or from custom recovery (e.g., TWRP).
+1. Remove or disable redundant modules (e.g., `Enable Doze for GMS`, `Universal GMS Doze`).
+
+2. Flash live (e.g., from Magisk Manager) or from custom recovery (e.g., TWRP).
 
 
 Uninstall
@@ -78,10 +82,10 @@ Uninstall
 
 Generally, once the module is installed, you don't have to do anything else.
 
-If you face issues, go to settings > security and try one or all of the following workarounds (a reboot is implied):
+If `Google Play Services` package is not optimized, go to settings > security and try one or all of the following workarounds (a reboot is implied):
 
+- Disable all Google `Trust Agents`. This may break Google `Smart Lock` features.
 - Disable all Google `Device Administrators`.
-- Disable all Google `Trust Agents`.
 - Disable `Find My Device`.
 
 

@@ -201,5 +201,6 @@ version_info() {
   ui_print "    - Git repository: github.com/Magisk-Modules-Repo/sysconfig-patcher/"
   ui_print "    - Telegram channel: t.me/vr25_xda/"
   ui_print "    - Telegram profile: t.me/vr25xda/"
+  ui_print "    - XDA thread: forum.xda-developers.com/apps/magisk/module-sysconfig-patcher-t3668435/"
   ui_print " "
 }
